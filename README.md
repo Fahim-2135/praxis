@@ -129,6 +129,11 @@ personal behavioral data).
 
 Candidates and active rules live apart on purpose: a pending proposal can never accidentally act.
 
+Two implementation files also live under `.praxis/`: `sessions/<id>.last`, a tiny per-session
+marker used to reconstruct `preceding_event` without scanning the log, and `errors.log`, a
+best-effort record of any hot-path failure (the hook always exits cleanly, so failures are noted
+here rather than surfaced to the editor). See [`docs/architecture.md`](docs/architecture.md).
+
 ### Log record schema
 
 ```json
