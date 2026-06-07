@@ -1,0 +1,7 @@
+node_modules
+.praxis
+package-lock.json
+
+# Markdown is authored prose (spec, instructions, logs) with intentional wrapping
+# and tables — formatting is owned by the author, not the tool.
+*.md

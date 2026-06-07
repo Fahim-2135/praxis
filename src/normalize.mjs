@@ -26,10 +26,19 @@ const BASH_RULES = [
   [/^git\s+(checkout|switch)\b/, "git_checkout"],
   [/^git\s+diff\b/, "git_diff"],
   [/^git\s+log\b/, "git_log"],
-  [/\b(?:npm|pnpm|yarn)\s+(?:run\s+)?test\b|\b(?:jest|vitest|pytest|mocha)\b|\b(?:go|cargo)\s+test\b/, "test_run"],
+  [
+    /\b(?:npm|pnpm|yarn)\s+(?:run\s+)?test\b|\b(?:jest|vitest|pytest|mocha)\b|\b(?:go|cargo)\s+test\b/,
+    "test_run",
+  ],
   [/\b(?:npm|pnpm|yarn)\s+(?:run\s+)?build\b/, "build_run"],
-  [/\b(?:npm|pnpm|yarn)\s+(?:run\s+)?lint\b|\b(?:eslint|tsc|golangci-lint)\b|\bruff\s+check\b/, "lint_run"],
-  [/\b(?:npm|pnpm|yarn)\s+(?:run\s+)?format\b|\b(?:prettier|black|gofmt)\b|\bruff\s+format\b/, "format_run"],
+  [
+    /\b(?:npm|pnpm|yarn)\s+(?:run\s+)?lint\b|\b(?:eslint|tsc|golangci-lint)\b|\bruff\s+check\b/,
+    "lint_run",
+  ],
+  [
+    /\b(?:npm|pnpm|yarn)\s+(?:run\s+)?format\b|\b(?:prettier|black|gofmt)\b|\bruff\s+format\b/,
+    "format_run",
+  ],
   [/^(?:ls|dir)\b/, "list_dir"],
 ];
 
@@ -72,7 +81,10 @@ const SEGMENT_SEPARATORS = /\s*(?:&&|\|\||;|\||\r?\n)\s*/;
  * @returns {Normalized}
  */
 function classifyBash(command) {
-  const segments = command.split(SEGMENT_SEPARATORS).map((s) => s.trim()).filter(Boolean);
+  const segments = command
+    .split(SEGMENT_SEPARATORS)
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   let action = null;
   for (const segment of segments) {

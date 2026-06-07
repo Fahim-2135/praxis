@@ -3,23 +3,50 @@ import assert from "node:assert/strict";
 import { normalize } from "../src/normalize.mjs";
 
 test("collapses git push argument variants into one action", () => {
-  assert.equal(normalize({ tool_name: "Bash", tool_input: { command: "git push" } }).action, "git_push");
   assert.equal(
-    normalize({ tool_name: "Bash", tool_input: { command: "git push origin main --force-with-lease" } }).action,
+    normalize({ tool_name: "Bash", tool_input: { command: "git push" } }).action,
+    "git_push",
+  );
+  assert.equal(
+    normalize({
+      tool_name: "Bash",
+      tool_input: { command: "git push origin main --force-with-lease" },
+    }).action,
     "git_push",
   );
 });
 
 test("recognizes test runners behind common prefixes", () => {
-  for (const command of ["npm test", "npm run test", "pnpm test", "yarn test", "pytest -q", "go test ./...", "cargo test"]) {
-    assert.equal(normalize({ tool_name: "Bash", tool_input: { command } }).action, "test_run", command);
+  for (const command of [
+    "npm test",
+    "npm run test",
+    "pnpm test",
+    "yarn test",
+    "pytest -q",
+    "go test ./...",
+    "cargo test",
+  ]) {
+    assert.equal(
+      normalize({ tool_name: "Bash", tool_input: { command } }).action,
+      "test_run",
+      command,
+    );
   }
 });
 
 test("distinguishes git subcommands", () => {
-  assert.equal(normalize({ tool_name: "Bash", tool_input: { command: "git commit -m 'x'" } }).action, "git_commit");
-  assert.equal(normalize({ tool_name: "Bash", tool_input: { command: "git status" } }).action, "git_status");
-  assert.equal(normalize({ tool_name: "Bash", tool_input: { command: "git switch main" } }).action, "git_checkout");
+  assert.equal(
+    normalize({ tool_name: "Bash", tool_input: { command: "git commit -m 'x'" } }).action,
+    "git_commit",
+  );
+  assert.equal(
+    normalize({ tool_name: "Bash", tool_input: { command: "git status" } }).action,
+    "git_status",
+  );
+  assert.equal(
+    normalize({ tool_name: "Bash", tool_input: { command: "git switch main" } }).action,
+    "git_checkout",
+  );
 });
 
 test("maps editing tools to a single file_edit action", () => {

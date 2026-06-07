@@ -25,7 +25,11 @@ function runHook(payload, { root } = {}) {
     projectDir,
     status: result.status,
     logLines: existsSync(logPath)
-      ? readFileSync(logPath, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l))
+      ? readFileSync(logPath, "utf8")
+          .trim()
+          .split("\n")
+          .filter(Boolean)
+          .map((l) => JSON.parse(l))
       : [],
     hasErrors: existsSync(errPath),
     cleanup: () => rmSync(projectDir, { recursive: true, force: true }),
@@ -33,12 +37,22 @@ function runHook(payload, { root } = {}) {
 }
 
 test("appends a normalized record and exits 0", () => {
-  const r = runHook(JSON.stringify({ session_id: "s1", tool_name: "Bash", tool_input: { command: "git push origin main" } }));
+  const r = runHook(
+    JSON.stringify({
+      session_id: "s1",
+      tool_name: "Bash",
+      tool_input: { command: "git push origin main" },
+    }),
+  );
   try {
     assert.equal(r.status, 0);
     assert.equal(r.logLines.length, 1);
     assert.deepEqual(
-      { action: r.logLines[0].action, preceding_event: r.logLines[0].preceding_event, session_id: r.logLines[0].session_id },
+      {
+        action: r.logLines[0].action,
+        preceding_event: r.logLines[0].preceding_event,
+        session_id: r.logLines[0].session_id,
+      },
       { action: "git_push", preceding_event: "session_start", session_id: "s1" },
     );
     assert.ok(!r.hasErrors);
@@ -85,8 +99,14 @@ test("malformed payload is swallowed: no log line, error noted, still exit 0", (
 test("reconstructs preceding_event across calls in the same session", () => {
   const root = mkdtempSync(join(tmpdir(), "praxis-"));
   try {
-    runHook(JSON.stringify({ session_id: "s1", tool_name: "Bash", tool_input: { command: "npm test" } }), { root });
-    const r = runHook(JSON.stringify({ session_id: "s1", tool_name: "Bash", tool_input: { command: "git push" } }), { root });
+    runHook(
+      JSON.stringify({ session_id: "s1", tool_name: "Bash", tool_input: { command: "npm test" } }),
+      { root },
+    );
+    const r = runHook(
+      JSON.stringify({ session_id: "s1", tool_name: "Bash", tool_input: { command: "git push" } }),
+      { root },
+    );
     assert.equal(r.logLines.length, 2);
     assert.equal(r.logLines[1].action, "git_push");
     assert.equal(r.logLines[1].preceding_event, "test_run");

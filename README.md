@@ -157,11 +157,24 @@ Requires **Node.js ≥ 18** (no other dependencies).
    Code loads it at session start, so **restart your session** (or start a new one) to activate it.
 3. That's it for Stage 1. As you work, `.praxis/log.jsonl` fills with normalized events.
 
-Run the tests:
+Run the tests (no install needed — the suite uses Node's built-in test runner):
 
 ```bash
 npm test
 ```
+
+### Development
+
+The runtime has zero dependencies; the only dev dependency is Prettier, for formatting.
+
+```bash
+npm install        # dev dependencies (Prettier)
+npm run format     # format the code
+npm run format:check
+```
+
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the formatter check and the test
+suite on Node 18, 20, and 22 for every push and pull request.
 
 ---
 
