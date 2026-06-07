@@ -53,6 +53,42 @@ const TOOL_RULES = Object.freeze({
 });
 
 /**
+ * Shell segment separators: `&&`, `||`, `;`, `|`, and newlines. Splitting on these
+ * lets us classify each link of a chained command independently, so a leading verb
+ * anchor (`^git …`) still matches when the command is chained or prefixed.
+ */
+const SEGMENT_SEPARATORS = /\s*(?:&&|\|\||;|\||\r?\n)\s*/;
+
+/**
+ * Classify a Bash command. The command is split into shell segments; each segment
+ * is matched against the rule table, and the LAST segment that matches wins — the
+ * chain's terminal intent (`git add … && git commit … && git push` -> `git_push`).
+ * Unrecognized commands keep their raw text for later rule discovery (PRAXIS.md §5).
+ *
+ * Capturing intermediate segments (not just the terminal one) is a calibration
+ * decision deliberately deferred until there is real logged behavior to tune against.
+ *
+ * @param {string} command
+ * @returns {Normalized}
+ */
+function classifyBash(command) {
+  const segments = command.split(SEGMENT_SEPARATORS).map((s) => s.trim()).filter(Boolean);
+
+  let action = null;
+  for (const segment of segments) {
+    for (const [pattern, label] of BASH_RULES) {
+      if (pattern.test(segment)) {
+        action = label; // keep scanning; a later segment may override (terminal intent)
+        break;
+      }
+    }
+  }
+
+  if (action) return { action };
+  return { action: "unmatched", raw: command || "(empty command)" };
+}
+
+/**
  * @typedef {object} Normalized
  * @property {string} action   The stable, countable intent label.
  * @property {string} [raw]    Present only when `action === "unmatched"`: the raw
@@ -68,11 +104,7 @@ export function normalize(event) {
   const toolName = event?.tool_name ?? "";
 
   if (toolName === "Bash") {
-    const command = String(event?.tool_input?.command ?? "").trim();
-    for (const [pattern, action] of BASH_RULES) {
-      if (pattern.test(command)) return { action };
-    }
-    return { action: "unmatched", raw: command || "(empty command)" };
+    return classifyBash(String(event?.tool_input?.command ?? "").trim());
   }
 
   const mapped = TOOL_RULES[toolName];

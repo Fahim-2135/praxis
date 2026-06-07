@@ -179,3 +179,30 @@ a cwd-relative path that is shell-agnostic given Claude Code's project-root work
 (2) PowerShell's native-pipe encoding prepends a UTF-8 BOM, so the hook now strips a leading U+FEFF
 and treats empty stdin as a no-op. Verified end-to-end under PowerShell, including correct
 `preceding_event` reconstruction across interleaved sessions.
+
+### 2026-06-07 — Stage 1 hardening: chained shell commands
+
+**Concept — why one command can hold several intents:** A real developer rarely runs one verb at
+a time. `git add . && git commit -m "x" && git push` is a single Bash call but three intents, and
+the one that matters — the *reason you ran the line* — is the last one (`git push`). The original
+normalizer matched the whole string against its rules and stopped at the first hit, so it labelled
+that line `git_add`: technically present, but the wrong story. Worse, any rule anchored to the
+start of the command (`^git …`) silently failed the moment you prefixed the line, e.g.
+`cd packages/api && git push`.
+
+**What I did about it.** I split each Bash command on shell separators (`&&`, `||`, `;`, `|`,
+newlines), classify every segment, and keep the *last* one that matches — the chain's terminal
+intent. Unrecognized chains still fall through to `unmatched` with the full command preserved, so
+nothing is silently lost.
+
+**Plain — what this means:** When you string several commands together with `&&`, Praxis now reads
+the line the way you mean it — by its final, point-of-the-whole-thing action — instead of getting
+distracted by the first word. And it no longer goes blind just because you put a `cd` in front.
+
+**Technical — how an engineer says it:** Bash normalization now tokenizes on shell control
+operators and applies the rule table per segment, selecting the terminal matching segment as the
+canonical `action`. This restores correctness for leading-anchored patterns under command chaining
+and prefixing, and keeps the one-record-per-call invariant. Whether to additionally emit
+intermediate segments is explicitly deferred as a calibration decision against real logged data
+(PRAXIS.md §12), rather than guessed now. Covered by four new unit tests (compound terminal intent,
+chained/prefixed anchors, unmatched chain with raw preservation, non-actionable leading segment).
