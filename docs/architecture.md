@@ -23,7 +23,9 @@ This is the raw material every later stage consumes.
 | `src/normalize.mjs` | Pure, deterministic `normalize(event) -> { action, raw? }`. The rule table. |
 | `src/state/paths.mjs` | Single source of truth for `.praxis/` file locations. |
 | `src/state/scaffold.mjs` | `ensureScaffold(root)` — creates the state dir and seeds `last_processed`. |
-| `test/normalize.test.mjs` | Zero-dependency unit tests (`node --test`) over the normalization rules. |
+| `src/report.mjs` | Pure aggregation (`summarize(records)`) over log records — no I/O, fully testable. |
+| `scripts/inspect-log.mjs` | Read-only CLI (`npm run inspect`) that prints a log summary and the unmatched pile. A companion for verifying the Stage 1 gate. |
+| `test/*.test.mjs` | Zero-dependency tests (`node --test`): normalization rules, the spawned hook process, concurrent appends, and the report aggregation. |
 
 ### Data flow
 

@@ -206,3 +206,25 @@ and prefixing, and keeps the one-record-per-call invariant. Whether to additiona
 intermediate segments is explicitly deferred as a calibration decision against real logged data
 (PRAXIS.md §12), rather than guessed now. Covered by four new unit tests (compound terminal intent,
 chained/prefixed anchors, unmatched chain with raw preservation, non-actionable leading segment).
+
+### 2026-06-07 — Stage 1 hardening: a read-only log inspector
+
+**Concept — separating pure logic from I/O:** A function that *both* reads a file and computes a
+result is hard to test (you need a real file on disk) and hard to reuse. The fix is to split it:
+a pure function that takes already-parsed data and returns a result (no file access, no printing),
+and a thin wrapper that does the messy I/O around it. The pure part gets fast, deterministic unit
+tests; the wrapper stays trivially small. I applied that here: `src/report.mjs` has `summarize()`
+(pure), and `scripts/inspect-log.mjs` reads the log and prints around it.
+
+**Plain — what I just did:** I added a command, `npm run inspect`, that shows you what Praxis has
+logged so far — how many times each action happened, and a list of commands it didn't recognize
+yet. That last list is gold: it's literally the to-do list of normalization rules to add, written
+by your real behavior instead of my guesses. It only reads; it changes nothing.
+
+**Technical — how an engineer says it:** Added a read-only reporting path: a pure
+`summarize(records)` aggregator (counts by action and session, ranked, with the unmatched-raw
+frequency table) and a CLI inspector that loads `log.jsonl`, tolerates malformed lines, and renders
+the summary. It directly supports Stage 1 gate verification ("is the log clean, are intents
+correct?") and operationalizes the PRAXIS.md §5 discovery loop — the unmatched pile is the
+data-driven backlog for future normalization rules. Covered by unit tests on the aggregator,
+including tie-breaking, empty input, and the missing-`session_id`/`raw` edge cases.

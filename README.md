@@ -157,6 +157,13 @@ Requires **Node.js ≥ 18** (no other dependencies).
    Code loads it at session start, so **restart your session** (or start a new one) to activate it.
 3. That's it for Stage 1. As you work, `.praxis/log.jsonl` fills with normalized events.
 
+Inspect what's been logged at any time (read-only — counts per action, plus the unmatched pile
+that reveals which rules to add next):
+
+```bash
+npm run inspect
+```
+
 Run the tests (no install needed — the suite uses Node's built-in test runner):
 
 ```bash
