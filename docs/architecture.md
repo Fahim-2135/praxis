@@ -25,6 +25,7 @@ This is the raw material every later stage consumes.
 | `src/state/scaffold.mjs` | `ensureScaffold(root)` — creates the state dir and seeds `last_processed`. |
 | `src/report.mjs` | Pure aggregation (`summarize(records)`) over log records — no I/O, fully testable. |
 | `scripts/inspect-log.mjs` | Read-only CLI (`npm run inspect`) that prints a log summary and the unmatched pile. A companion for verifying the Stage 1 gate. |
+| `scripts/demo.mjs` | Self-contained demo (`npm run demo`) that drives the real hook over synthetic events in a temp dir. Touches no project state. |
 | `test/*.test.mjs` | Zero-dependency tests (`node --test`): normalization rules, the spawned hook process, concurrent appends, and the report aggregation. |
 
 ### Data flow
@@ -56,12 +57,13 @@ exit 0   (always — failures are swallowed to errors.log)
 
 - **Non-Bash tools** map by name (`Read -> file_read`, `Edit/Write/MultiEdit -> file_edit`,
   `Grep/Glob -> file_search`, …).
-- **Bash commands** are split on shell separators (`&&`, `||`, `;`, `|`, newlines) and each
-  segment is matched against an ordered rule table. The **last** segment that matches wins — a
-  chain's terminal intent. So `git add . && git commit … && git push` normalizes to `git_push`,
-  and leading-anchored rules keep working when a command is chained or prefixed (`cd x && git push`
-  -> `git_push`). Whether to also record intermediate segments is left as a calibration decision
-  for real logged data.
+- **Bash commands** are split on shell separators (`&&`, `||`, `;`, `|`, newlines); each segment has
+  leading noise stripped (environment assignments like `CI=1`, and wrappers like `sudo`, `env`,
+  `time`, `nice`) and is matched against an ordered rule table. The **last** segment that matches
+  wins — a chain's terminal intent. So `git add . && git commit … && git push` normalizes to
+  `git_push`, `sudo git push` and `CI=1 git push` still resolve to `git_push`, and leading-anchored
+  rules keep working under chaining and prefixing. Whether to also record intermediate segments is
+  left as a calibration decision for real logged data.
 - **Anything unrecognized** is `action: "unmatched"` with the raw command or tool name preserved,
   so the unmatched pile reveals which rules to add next (PRAXIS.md §5). Coverage is intentionally
   not exhaustive.

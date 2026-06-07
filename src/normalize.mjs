@@ -69,6 +69,29 @@ const TOOL_RULES = Object.freeze({
 const SEGMENT_SEPARATORS = /\s*(?:&&|\|\||;|\||\r?\n)\s*/;
 
 /**
+ * Leading noise that precedes the real verb: an environment assignment (`CI=1`),
+ * or a wrapper command (`sudo`, `env`, `time`, `nice`, `command`, `exec`). Stripping
+ * these lets a leading-anchored rule (`^git …`) still match `sudo git push` or
+ * `CI=1 git push`. Applied repeatedly to peel a stack of prefixes.
+ */
+const LEADING_NOISE = /^(?:\w+=\S*|sudo|env|time|nice|command|exec)\s+/;
+
+/**
+ * Strip leading environment assignments and wrapper commands from a segment.
+ * @param {string} segment
+ * @returns {string}
+ */
+function stripLeadingNoise(segment) {
+  let current = segment;
+  let previous;
+  do {
+    previous = current;
+    current = current.replace(LEADING_NOISE, "");
+  } while (current !== previous);
+  return current;
+}
+
+/**
  * Classify a Bash command. The command is split into shell segments; each segment
  * is matched against the rule table, and the LAST segment that matches wins — the
  * chain's terminal intent (`git add … && git commit … && git push` -> `git_push`).
@@ -87,7 +110,8 @@ function classifyBash(command) {
     .filter(Boolean);
 
   let action = null;
-  for (const segment of segments) {
+  for (const rawSegment of segments) {
+    const segment = stripLeadingNoise(rawSegment);
     for (const [pattern, label] of BASH_RULES) {
       if (pattern.test(segment)) {
         action = label; // keep scanning; a later segment may override (terminal intent)

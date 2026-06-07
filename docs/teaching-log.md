@@ -228,3 +228,28 @@ the summary. It directly supports Stage 1 gate verification ("is the log clean, 
 correct?") and operationalizes the PRAXIS.md §5 discovery loop — the unmatched pile is the
 data-driven backlog for future normalization rules. Covered by unit tests on the aggregator,
 including tie-breaking, empty input, and the missing-`session_id`/`raw` edge cases.
+
+### 2026-06-07 — Stage 1 hardening: prefix stripping, a demo, and contributor docs
+
+**Concept — peeling leading noise before matching:** Real commands often carry a prefix before the
+verb that matters: an environment assignment (`CI=1 git push`) or a wrapper (`sudo git push`,
+`time npm test`). A rule anchored to the start of the line (`^git …`) would miss all of these. So
+before matching, the normalizer strips a stack of these known prefixes, exposing the real verb. It's
+a small, deterministic pre-pass — no parsing the whole shell grammar, just removing the noise that
+predictably sits in front.
+
+**Plain — what I did:** Three things. (1) Praxis now understands commands that start with things
+like `sudo` or `CI=1` — it looks past them to the real action. (2) I added `npm run demo`: run it
+and you watch the whole Stage 1 machine work on a pretend day of activity, in seconds, without
+touching your real data — useful for you and for anyone reading the repo. (3) I wrote a
+`CONTRIBUTING.md` so an outside developer knows how to work on this safely, especially the one rule
+that must never be broken (don't put slow or smart things in the hot path).
+
+**Technical — how an engineer says it:** (1) Added `stripLeadingNoise()` to the Bash classifier — a
+fixed-point removal of leading env-assignments and wrapper commands so leading-anchored rules match
+under common prefixes; covered by a new unit test. (2) Added `scripts/demo.mjs` (`npm run demo`): an
+honest, self-contained demonstration that spawns the actual hook over a synthetic multi-session
+event stream in a temp directory and renders the resulting log plus a `summarize()` report, leaving
+project state untouched — it doubles as the README's runnable demo. (3) Added `CONTRIBUTING.md`
+documenting the dev workflow, CI expectations, the non-negotiable hot-path contract, and the
+calibrate-from-real-data normalization principle.

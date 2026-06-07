@@ -175,6 +175,24 @@ Run the tests (no install needed — the suite uses Node's built-in test runner)
 npm test
 ```
 
+### See it work
+
+No setup or day of use required — `npm run demo` drives the real hook over a synthetic workday in a
+throwaway directory and prints what it inferred:
+
+```text
+Logged events (action  <-  preceding_event   [session]):
+  test_run                     <- file_search      [morning]
+  git_push                     <- test_run         [morning]    # "git add && commit && push" -> terminal intent
+  test_run                     <- session_start    [afternoon]  # "CI=1 npm test" -> prefix stripped
+  unmatched: docker compose up -d <- git_status    [afternoon]  # surfaced as a rule candidate
+
+Summary — 11 events across 3 sessions:
+    3  git_push
+    2  test_run
+    ...
+```
+
 ### Development
 
 The runtime has zero dependencies; the only dev dependency is Prettier, for formatting.

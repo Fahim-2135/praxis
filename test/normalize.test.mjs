@@ -102,3 +102,11 @@ test("a chain with no recognized verb stays unmatched with raw preserved", () =>
 test("non-actionable leading segment yields the actionable trailing one", () => {
   assert.equal(bash("echo deploying && npm run build").action, "build_run");
 });
+
+test("strips leading env-assignments and wrapper commands before matching", () => {
+  assert.equal(bash("CI=1 git push").action, "git_push");
+  assert.equal(bash("sudo git status").action, "git_status");
+  assert.equal(bash("FOO=bar BAZ=qux git commit -m x").action, "git_commit");
+  assert.equal(bash("time npm test").action, "test_run");
+  assert.equal(bash("env NODE_ENV=test sudo git pull").action, "git_pull");
+});

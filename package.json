@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
+    "demo": "node scripts/demo.mjs",
     "inspect": "node scripts/inspect-log.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
