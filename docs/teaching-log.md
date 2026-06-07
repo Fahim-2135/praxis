@@ -253,3 +253,23 @@ event stream in a temp directory and renders the resulting log plus a `summarize
 project state untouched — it doubles as the README's runnable demo. (3) Added `CONTRIBUTING.md`
 documenting the dev workflow, CI expectations, the non-negotiable hot-path contract, and the
 calibrate-from-real-data normalization principle.
+
+### 2026-06-07 — Stage 1 hardening: linter vs formatter
+
+**Concept — two different jobs people often conflate:** A *formatter* (Prettier) only changes how
+code *looks* — indentation, quotes, line breaks. It never changes what the code *does*. A *linter*
+(ESLint) analyzes what the code *means* and flags likely defects: a variable you imported but never
+use, a reference to something undefined, a `case` that falls through by accident. Formatting is
+taste; linting is correctness. Running both, with no overlap between them, is the conventional
+professional setup — which is why I configured ESLint with formatting rules turned off, so the two
+tools never fight.
+
+**Plain — what I did:** I added a second automatic checker. The first one (Prettier) keeps the code
+tidy; this new one (ESLint) reads the code for actual mistakes — things that would be bugs, not just
+ugly. Both now run automatically in CI on every change, alongside the tests. The codebase passed
+ESLint with nothing to fix, which is a good sign it was already clean.
+
+**Technical — how an engineer says it:** Added ESLint (flat config, `@eslint/js` recommended) as a
+correctness gate distinct from Prettier's formatting gate, with stylistic rules omitted to avoid
+tool conflict. Wired `npm run lint` into CI ahead of `format:check` and `test`. The existing source
+passed with zero findings, confirming the hand-written code already met the recommended rule set.

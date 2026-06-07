@@ -9,16 +9,17 @@ Code; please read [`PRAXIS.md`](PRAXIS.md) (the spec) and [`docs/architecture.md
 Requires **Node.js ≥ 18**. The runtime has no dependencies; the only dev dependency is Prettier.
 
 ```bash
-npm install          # dev tooling (Prettier)
+npm install          # dev tooling (ESLint, Prettier)
 npm test             # run the full test suite (Node's built-in runner)
-npm run format       # auto-format code
+npm run lint         # ESLint — correctness checks
+npm run format       # Prettier — auto-format code
 npm run format:check # verify formatting (also enforced in CI)
 npm run demo         # see the Stage 1 pipeline run end-to-end on synthetic data
 npm run inspect      # summarize your real .praxis/log.jsonl
 ```
 
-CI runs `format:check` and `test` on Node 18, 20, and 22 for every push and pull request. Keep both
-green.
+CI runs `lint`, `format:check`, and `test` on Node 18, 20, and 22 for every push and pull request.
+Keep them green. ESLint owns correctness; Prettier owns formatting — they do not overlap.
 
 ## The one rule you must not break: the hot path
 

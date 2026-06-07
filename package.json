@@ -8,6 +8,7 @@
     "test": "node --test",
     "demo": "node scripts/demo.mjs",
     "inspect": "node scripts/inspect-log.mjs",
+    "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
@@ -16,6 +17,9 @@
   },
   "license": "MIT",
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.4.1",
+    "globals": "^17.6.0",
     "prettier": "^3.8.3"
   }
 }

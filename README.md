@@ -198,12 +198,13 @@ Summary — 11 events across 3 sessions:
 The runtime has zero dependencies; the only dev dependency is Prettier, for formatting.
 
 ```bash
-npm install        # dev dependencies (Prettier)
+npm install        # dev dependencies (ESLint, Prettier)
+npm run lint       # correctness checks
 npm run format     # format the code
-npm run format:check
+npm test
 ```
 
-CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the formatter check and the test
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs lint, formatter check, and the test
 suite on Node 18, 20, and 22 for every push and pull request.
 
 ---
