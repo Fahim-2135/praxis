@@ -22,6 +22,15 @@ npm run bench        # measure the hot path's per-invocation latency
 CI runs `lint`, `format:check`, and `test` on Node 18, 20, and 22 for every push and pull request.
 Keep them green. ESLint owns correctness; Prettier owns formatting — they do not overlap.
 
+Optionally enable the bundled pre-commit hook to run those same checks locally before each commit:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Security-sensitive behavior (notably that unrecognized commands log their raw text) is documented in
+[`SECURITY.md`](SECURITY.md).
+
 ## The one rule you must not break: the hot path
 
 `src/hooks/post-tool-use.mjs` runs on **every** Claude Code tool call. Its latency is paid on every

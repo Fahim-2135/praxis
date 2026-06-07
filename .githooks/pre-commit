@@ -1,0 +1,11 @@
+#!/bin/sh
+# Pre-commit gate — runs the same checks as CI so problems are caught before they
+# land in history. Enable it once with:
+#
+#   git config core.hooksPath .githooks
+#
+set -e
+
+npm run lint
+npm run format:check
+npm test
