@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Praxis runtime state — user-specific behavioral data, never committed.
+# (Includes log.jsonl, last_processed, candidates/active/rejected rules, markers.)
+.praxis/
+
+# Local Claude Code settings — machine-specific permissions, not shared config.
+.claude/settings.local.json
+
+# Environment and secrets
+.env
+.env.*
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
