@@ -80,7 +80,11 @@ The hook runs on *every* tool call, so its cost is paid on every action. It is t
 - **Never disrupts Claude Code.** Every failure path is caught, noted best-effort to
   `.praxis/errors.log`, and the process still `exit(0)`s. A logger must never break the tool it logs.
 
-Measured cost: ~70 ms per invocation, dominated by Node process startup, flat regardless of log size.
+Measured cost (200 invocations, `npm run bench`, Windows/Node 24): p50 ≈ 57 ms, p95 ≈ 68 ms,
+p99 ≈ 88 ms per call, dominated by Node process startup and flat regardless of log size — the append
+and marker writes are negligible by comparison. This is the latency added to each tool call; it is
+small relative to a model turn (seconds), which is the objective basis for the Stage 1 gate's
+"still feels snappy" requirement. The remaining, subjective confirmation is the user's day of use.
 
 ### Design decision: how `preceding_event` is captured
 

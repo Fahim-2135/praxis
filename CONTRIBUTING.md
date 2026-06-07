@@ -16,6 +16,7 @@ npm run format       # Prettier — auto-format code
 npm run format:check # verify formatting (also enforced in CI)
 npm run demo         # see the Stage 1 pipeline run end-to-end on synthetic data
 npm run inspect      # summarize your real .praxis/log.jsonl
+npm run bench        # measure the hot path's per-invocation latency
 ```
 
 CI runs `lint`, `format:check`, and `test` on Node 18, 20, and 22 for every push and pull request.
