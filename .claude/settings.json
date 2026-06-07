@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/src/hooks/post-tool-use.mjs\""
+            "command": "node src/hooks/post-tool-use.mjs"
           }
         ]
       }

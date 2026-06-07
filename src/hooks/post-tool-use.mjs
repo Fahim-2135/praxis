@@ -26,6 +26,17 @@ async function readStdin() {
 }
 
 /**
+ * Strip a leading UTF-8 BOM (some shells prepend one when piping to a process's
+ * stdin) and trim surrounding whitespace.
+ * @param {string} text
+ * @returns {string}
+ */
+function clean(text) {
+  const withoutBom = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  return withoutBom.trim();
+}
+
+/**
  * Append one normalized event record and advance the session marker.
  * @param {object} event  Parsed PostToolUse payload.
  */
@@ -71,10 +82,12 @@ function noteError(err) {
   }
 }
 
-const raw = await readStdin();
-try {
-  record(JSON.parse(raw));
-} catch (err) {
-  noteError(err);
+const raw = clean(await readStdin());
+if (raw) {
+  try {
+    record(JSON.parse(raw));
+  } catch (err) {
+    noteError(err);
+  }
 }
 process.exit(0);

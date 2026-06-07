@@ -144,3 +144,38 @@ keying guarantees single-writer access, eliminating the need for file locking un
 sessions. This is documented as a deliberate, spec-compliant design decision in
 `docs/architecture.md` (the marker file is an implementation detail not present in PRAXIS.md §3's
 state-file table).
+
+### 2026-06-07 — Stage 1: two bugs the verification caught before you wasted a day
+
+**Concept — verify the activation path, not just the logic:** Unit tests proved the *logic*
+(normalization) was correct, but a hook has a second failure surface: whether the shell command
+that launches it actually runs on your machine. I tested that separately, and it's a good thing —
+the first version would have silently never fired.
+
+**Bug 1 — shell variable expansion.** The hook command was `node "$CLAUDE_PROJECT_DIR/src/..."`.
+`$CLAUDE_PROJECT_DIR` is the syntax for an environment variable in **bash**, but your shell is
+**PowerShell**, where the same text means "a PowerShell variable named CLAUDE_PROJECT_DIR" — which
+is undefined and expands to nothing. So the path collapsed to `/src/hooks/post-tool-use.mjs` and
+node couldn't find the file. *Fix:* use a relative path (`node src/hooks/post-tool-use.mjs`), which
+needs no expansion and works the same in PowerShell, cmd, and bash, because Claude Code runs hooks
+from the project root.
+
+**Bug 2 — the BOM.** "BOM" (byte-order mark) is an invisible character (U+FEFF) some Windows tools,
+including PowerShell, stick at the very front of text they pipe into a program. `JSON.parse` sees
+that invisible character before the `{` and throws. Claude Code itself sends clean text without a
+BOM, so this wasn't strictly required — but a parser that chokes on a stray invisible byte is
+fragile. *Fix:* strip a leading BOM and ignore empty input before parsing.
+
+**Plain — what this means:** Code that passes its tests can still be broken in the real world if the
+wiring that launches it is wrong. Checking the launch path on the actual platform — not just the
+inner logic — is what separates "works on my machine in theory" from "works." Both fixes are small;
+finding them is the whole value.
+
+**Technical — how an engineer says it:** Logic correctness (unit-tested normalization) is
+necessary but not sufficient; the invocation contract must be validated against the host
+environment. Two platform-specific defects were found by exercising the registered command under
+PowerShell: (1) POSIX `$VAR` expansion does not occur in PowerShell, so the command was switched to
+a cwd-relative path that is shell-agnostic given Claude Code's project-root working directory; and
+(2) PowerShell's native-pipe encoding prepends a UTF-8 BOM, so the hook now strips a leading U+FEFF
+and treats empty stdin as a no-op. Verified end-to-end under PowerShell, including correct
+`preceding_event` reconstruction across interleaved sessions.

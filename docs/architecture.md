@@ -97,10 +97,24 @@ All of `.praxis/` is git-ignored: it is user-specific behavioral data.
 
 ### Cross-platform note
 
-The hook command uses `$CLAUDE_PROJECT_DIR` (Claude Code's documented project-root variable). The
-script additionally falls back to the event's `cwd` and then `process.cwd()`, so path resolution is
-resilient even where the environment variable is absent. Verified on Windows during the build; the
-Stage-1 gate (a day of real use) is the final confirmation that the hook fires correctly in situ.
+The hook command is a **relative path** — `node src/hooks/post-tool-use.mjs` — not an absolute
+path built from `$CLAUDE_PROJECT_DIR`. This is deliberate and was corrected during the build after
+empirical testing:
+
+- Claude Code runs hook commands through the user's shell, which on this machine is **PowerShell**.
+  In PowerShell, `$CLAUDE_PROJECT_DIR` is *not* an environment-variable reference (that would be
+  `$env:CLAUDE_PROJECT_DIR`); it expands to empty, so the absolute-path form silently broke. A
+  relative path needs no variable expansion and resolves identically under PowerShell, `cmd`, and
+  `bash`, relying only on Claude Code running hooks with the working directory at the project root.
+- For locating `.praxis/`, the script still prefers `process.env.CLAUDE_PROJECT_DIR` (which *is*
+  set as a real environment variable), falling back to the event's `cwd` then `process.cwd()`.
+- The hook also strips a leading UTF-8 BOM and no-ops on empty stdin, because PowerShell prepends a
+  BOM when piping to a process. Claude Code sends clean UTF-8, but tolerating both keeps the parser
+  robust regardless of how the payload is delivered.
+
+Verified on Windows/PowerShell during the build (correct records, correct `preceding_event`
+chaining across interleaved sessions, silent on empty input). The Stage-1 gate — a day of real use —
+is the final confirmation that the hook fires correctly in situ.
 
 ---
 
