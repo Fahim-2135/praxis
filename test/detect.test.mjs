@@ -142,3 +142,17 @@ test("empty log yields no candidates and no crash", () => {
   assert.deepEqual(dropped, []);
   assert.equal(analyzed.events, 0);
 });
+
+test("an unmatched action is never promoted, even if it clears every gate", () => {
+  // This pattern would pass frequency, cross-session, consistency, and recency — but
+  // `unmatched` is unactionable (a normalization-rule signal, not a rule to promote).
+  const log = records({
+    action: "unmatched",
+    preceding: "session_start",
+    sessions: ["a", "b", "c", "a", "b"],
+  });
+  const { candidates, dropped } = detect(log, { now: NOW });
+  assert.equal(candidates.length, 0);
+  assert.equal(dropped[0].action, "unmatched");
+  assert.equal(dropped[0].failedGate, "unactionable");
+});

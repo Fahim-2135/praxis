@@ -198,6 +198,21 @@ export function detect(records, options = {}) {
 
   for (const group of groups.values()) {
     const { failedGate, summary } = evaluate(group, contextTotals, now, thresholds);
+
+    // An `unmatched` action is unactionable: you cannot make a rule out of an
+    // unrecognized command, and all unmatched commands collapse under one label. It is
+    // a signal to add a normalization rule (PRAXIS.md §5), not a candidate to promote.
+    // Surfaced in `dropped` so its volume still informs that discovery.
+    if (group.action === "unmatched") {
+      dropped.push({
+        action: group.action,
+        preceding_event: group.preceding_event,
+        failedGate: "unactionable",
+        evidence: summary,
+      });
+      continue;
+    }
+
     if (failedGate) {
       dropped.push({
         action: group.action,

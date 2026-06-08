@@ -180,6 +180,13 @@ A *pattern* is an `(action, preceding_event)` pair. It must clear, in order:
 Thresholds live in one frozen `THRESHOLDS` table and are overridable per-call for calibration. They
 are **starting guesses**, tuned only against real logged behavior (PRAXIS.md §6, §12).
 
+**Unmatched is never promoted.** A pattern whose `action` is `unmatched` is excluded from candidacy
+regardless of its counts (it is surfaced in `dropped` with `failedGate: "unactionable"` so its volume
+still informs rule discovery). You cannot make a rule out of an unrecognized command, and all
+unmatched commands collapse under one label — so a frequent unmatched cluster is a signal to add a
+*normalization* rule (PRAXIS.md §5), not a behavior to automate. A `preceding_event` of `unmatched`
+is left eligible: the context is weak, but the gates handle it.
+
 ### Why the gates run over the whole log, and what the cursor is actually for
 
 A pattern's significance — cross-session spread, the consistency denominator — is a property of the

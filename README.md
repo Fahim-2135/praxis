@@ -98,7 +98,9 @@ real logged behavior — never invented in the abstract.)
 | 4 | **Recency** — at least once in the last 5 days | Stale habits you've already dropped. |
 | 5 | **Safety classification** — sorts the action into a reversibility tier | Nothing — it classifies rather than rejects, governing how the rule may *behave*. |
 
-Every gate is pure arithmetic over the local log. No model call, no network, no cost.
+Every gate is pure arithmetic over the local log. No model call, no network, no cost. (One pattern is
+ineligible regardless of its counts: an `unmatched` action — an unrecognized command — can't become a
+rule, so it's never promoted; its volume is instead a signal to add a *normalization* rule.)
 
 The build order calls this a "detection subagent," but there is deliberately **no model in it**.
 A non-deterministic judge would map the same log to different rules on different runs, fragmenting
