@@ -336,3 +336,62 @@ classifier would map the same log to different rules across runs, fragmenting th
 depends on and destroying the inspectability that is the project's core promise (PRAXIS.md §6, §12).
 "Subagent" here means a cold-path component, not a model. Flagging this rather than quietly building
 an LLM judge is the spec protecting the project from a plausible-sounding wrong turn.
+
+---
+
+### 2026-06-08 — Stage 3: the human path and the approval loop
+
+**Concept — the human path / a CLI as a control surface:** Stages 1–2 gave us a logger and an engine,
+but the engine is deliberately *powerless* — it can only write a shortlist. The human path is the
+command you run to act on that shortlist: `praxis review`. A CLI (command-line interface) is the right
+control surface here because it's async (you review when you want, not when a hook fires), inspectable
+(it just reads and writes plain files), and scriptable. The alternative — auto-promoting candidates — is
+exactly what the project forbids: nothing the engine infers takes effect until a human approves it.
+
+**Concept — a round-trippable human+machine file:** `active-rules.md` has two jobs that pull in opposite
+directions. It must be *prose* a human and the model can read, and it must be *data* later stages can
+parse to know which rules are live. Pure prose is fragile to parse; a separate JSON file would duplicate
+state and drift. The resolution is to render both into one file: a readable heading + sentence per rule,
+plus a machine-readable *provenance marker* — an HTML comment carrying the canonical JSON
+(`<!-- praxis:rule {...} -->`). The parser reads only the markers, so editing the prose never breaks the
+data, and a corrupt marker is skipped rather than fatal. This is the project's central tension —
+inspectable *and* machine-driven — solved in one artifact.
+
+**Concept — dependency injection for testability:** Instead of `runReview` reading the keyboard itself,
+it takes the per-candidate decision as a function argument (`decide`). The interactive command passes a
+readline-backed asker; the tests pass a scripted list of answers. The *same* loop runs in both, so all
+the file-writing logic is unit-tested without a terminal. "Injecting" the dependency (the decision
+source) is the standard way to make I/O-driven logic testable.
+
+**Concept — reading batched input correctly (the async iterator):** A prompt loop that issues one
+`rl.question` per item works when a human types one line at a time, but silently drops lines that arrive
+*together* (pasted or piped) between questions, then hangs at end-of-input. Reading instead from
+readline's async *iterator* (`for await (const line of rl)`, or `rl[Symbol.asyncIterator]()`) queues
+incoming lines so none are lost, and end-of-input resolves cleanly. The lesson: design the input path for
+batched delivery, not just interactive typing.
+
+**Plain — what I just did:** I built the part where *you* decide. You run one command and Praxis shows
+you, one at a time, each habit it spotted — how often, across how many sessions, how risky — and you
+stamp it approve, reject, or skip. Approve writes it into a plain rulebook the assistant will read next
+session; reject puts it on a "never suggest this again" list; skip leaves it for later. I also made sure
+the engine never re-asks about something you've already decided, and that the rulebook stays a file you
+can open and read like notes — not hidden automation.
+
+**Technical — how an engineer says it:** Implemented the human path as a CLI (`bin/praxis.mjs`) over a
+pure state core (`src/review/store.mjs`) and an I/O shell (`src/review/run.mjs`). `applyDecision` is a
+pure approve/reject/skip state transition (returns new state, dedupes against existing entries);
+`renderActiveRules`/`parseActiveRules` round-trip approved rules through a prose+provenance-marker
+markdown format; `renderRejected` serializes the rejection memory in the array shape the cold runner
+already consumes. `runReview` takes an injected `decide` callback so the readline prompt and scripted
+tests share one loop. The cold runner's filter was generalized from `readRejected` to `readDecided`,
+unioning rejected and active patterns so nothing decided is re-proposed. The interactive asker reads from
+readline's async iterator for batched-input correctness and treats EOF as a graceful quit. Added
+`test/review.test.mjs` (13 tests) and a cold-run case for the no-re-propose rule; full suite 54 tests,
+lint and format clean.
+
+**Decision — rewrite `candidates.json` on review, don't just append elsewhere.** When you decide on a
+candidate, it leaves the pending pool: approved/rejected ones are removed from `candidates.json` and only
+skipped/undecided ones remain (provenance preserved). This keeps a re-run of `praxis review` showing only
+genuinely-pending patterns even before the next cold pass regenerates the snapshot. The separation of
+`candidates.json` (proposals) from `active-rules.md` (approved) is the safety design from PRAXIS.md §3 —
+a pending proposal lives apart from anything that can act.

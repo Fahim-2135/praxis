@@ -92,6 +92,22 @@ test("rejected patterns are never re-proposed", () => {
   }
 });
 
+test("already-approved patterns are not re-proposed as candidates", () => {
+  const { root, p } = seedProject(passingPattern());
+  try {
+    // An active-rules.md already containing this pattern (as Stage 3 would write it).
+    writeFileSync(
+      p.activeRules,
+      '# Active\n<!-- praxis:rule {"action":"git_push","preceding_event":"test_run","tier":"consequential"} -->\n',
+    );
+    const result = runDetection(root, { now: NOW });
+    assert.equal(result.ran, true);
+    assert.equal(result.candidates.length, 0); // the only pattern is already active
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("force + dryRun analyzes but writes nothing", () => {
   const { root, p } = seedProject(passingPattern());
   try {

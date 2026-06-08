@@ -41,6 +41,8 @@ export function paths(root) {
     lastProcessed: join(base, "last_processed"),
     /** `candidates.json` — patterns that cleared all gates, awaiting approval. */
     candidates: join(base, "candidates.json"),
+    /** `active-rules.md` — approved rules only; the single file injected into context. */
+    activeRules: join(base, "active-rules.md"),
     /** `rejected.json` — declined patterns (rejection memory; written from Stage 3). */
     rejected: join(base, "rejected.json"),
     /** `sessions/` — per-session "preceding event" markers. */

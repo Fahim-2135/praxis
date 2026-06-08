@@ -10,8 +10,8 @@ hard-blocked at the hook layer, never auto-run.
 The key distinction: Praxis is **not** a note tool you fill in. It *infers* the rules you
 never stated. You don't tell it "I always push after tests pass" — it notices.
 
-> **Status:** Stages 1–2 of 5 complete (the hot path and the detection engine). The review
-> loop, feedback injection, and self-pruning are built in later stages — see
+> **Status:** Stages 1–3 of 5 complete (the hot path, the detection engine, and the `praxis
+> review` approval loop). Feedback injection and self-pruning are built in later stages — see
 > [Build stages](#build-stages). This README grows with the build.
 
 ---
@@ -201,6 +201,28 @@ hook does this automatically at session boundaries). Pass `--write` to persist `
 npm run detect
 ```
 
+Review the proposed candidates and decide which become rules. Each is shown with its tier and
+evidence; approve (`a`) writes it to `active-rules.md`, reject (`r`) remembers it in `rejected.json`
+so it's never proposed again, skip (`s`) leaves it pending, quit (`q`) stops:
+
+```bash
+npm run review                      # interactive approval loop
+node bin/praxis.mjs review --list   # read-only: list pending candidates and active rules
+```
+
+Approved rules are written as plain markdown you can open and read — prose for you and the model,
+with a machine-readable marker under each rule so later stages can parse them back:
+
+```markdown
+## `git_push` after `test_run`  ·  consequential
+
+When `test_run` just happened, you have repeatedly done `git_push` next (seen 6× across 3 sessions,
+86% consistent, last 2026-06-08…). It is recoverable but not trivial, so offer it and act only on
+explicit confirmation.
+
+<!-- praxis:rule {"action":"git_push","preceding_event":"test_run","tier":"consequential",…} -->
+```
+
 Run the tests (no install needed — the suite uses Node's built-in test runner):
 
 ```bash
@@ -248,7 +270,8 @@ Built strictly in order — each stage's real output is the next stage's tuning 
 1. **Hot path** ✅ — PostToolUse logging, rule-based normalization, `log.jsonl`, `last_processed`.
 2. **Detection + 5 gates** ✅ — the promotion engine + cursor-idempotent cold path, run over the real
    Stage-1 log.
-3. **`praxis review` + write-back** — the approval loop.
+3. **`praxis review` + write-back** ✅ — the approval loop: candidates → `active-rules.md` /
+   `rejected.json`, with decided patterns never re-proposed.
 4. **Feedback hook** — SessionStart injects `active-rules.md`; the loop closes.
 5. **Self-pruning** — recency re-validation retires stale rules.
 

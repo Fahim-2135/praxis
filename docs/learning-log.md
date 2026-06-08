@@ -87,3 +87,50 @@ log reader so nothing is duplicated across the two hooks.
 **Gate before Stage 3:** the engine is correct and quiet on thin data. Stage 3 builds `praxis
 review` — the approval loop that turns a candidate into an active rule — which is what finally
 gives the candidates somewhere to go.
+
+---
+
+## Stage 3 — `praxis review` and the approval loop
+
+**What we built.** The human in the loop. A command, `praxis review`, that shows me each pattern the
+engine proposed — with its evidence and risk tier — and lets me approve, reject, or skip it. Approvals
+become real rules in a file; rejections are remembered so they never come back; skips wait for next time.
+This is the gate: nothing the engine infers ever takes effect until I say so here.
+
+**The plain version.** The engine from Stage 2 builds a shortlist but is powerless — it can only
+*suggest*. Stage 3 is me sitting down with that shortlist and a yes/no/later stamp. Say *yes* and the
+habit gets written into a rulebook the assistant will read; say *no* and it goes onto a "never ask me
+this again" list; say *later* and it stays on the shortlist. The rulebook is a plain file I can open and
+read like a page of notes — not hidden machinery.
+
+**The technical version.** Stage 3 is the human path: a CLI (`bin/praxis.mjs`) over a pure state core
+(`src/review/store.mjs`) and an I/O shell (`src/review/run.mjs`). Approve writes to `active-rules.md`,
+reject to `rejected.json`, skip leaves the candidate in `candidates.json`. The detector now filters out
+*both* rejected and already-approved patterns, so nothing decided is ever re-proposed. The decision
+source is injected into `runReview`, so the readline prompt and the test's scripted answers run the
+identical loop.
+
+**The thing that actually clicked.** Two ideas. First, **one file can serve two masters if you separate
+the channels.** `active-rules.md` has to be readable prose *and* reliable data. Instead of choosing, I
+render the prose for humans and tuck a machine-readable marker (`<!-- praxis:rule {...} -->`) under each
+rule; the parser reads only the markers, so editing the prose can't break the data. That's the whole
+design tension of the project — inspectable *and* machine-driven — solved in miniature. Second, **the
+approve/reject/skip *math* and the *keyboard* are different problems.** By making the decision a function
+passed into the loop, the file-writing logic is fully testable with no terminal, and the fiddly readline
+part stays a thin shell. The same separation-of-pure-logic-from-I/O discipline from Stage 1, applied
+again.
+
+**The bug worth remembering.** My first interactive prompt issued one `rl.question` per candidate. With a
+human typing, fine; but feed it several answers at once (paste, or a piped test) and lines that arrive
+*between* questions get silently dropped, then it hangs at end-of-input. The fix was to read from
+readline's async *iterator*, which queues lines so none are lost, and to treat end-of-input as a graceful
+"quit." Lesson: a prompt loop has to be correct for batched input, not just for one-key-at-a-time typing.
+
+**Concepts exercised:** CLI design and argument dispatch, interactive input via `node:readline/promises`
+and its async iterator, a round-trippable human+machine file format (prose + provenance markers),
+dependency injection for testability (the decision callback), idempotent rejection memory, and closing
+the feedback gap so decided patterns aren't re-proposed.
+
+**Gate before Stage 4:** approvals land in `active-rules.md` and rejections in `rejected.json`; the
+detector respects both. Stage 4 is the feedback hook — `SessionStart` prints `active-rules.md` into
+context so the model actually acts on the approved rules. That closes the loop end to end.

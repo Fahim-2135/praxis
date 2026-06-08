@@ -16,6 +16,7 @@ import { writeFileSync, readFileSync } from "node:fs";
 import { paths } from "../state/paths.mjs";
 import { readLog } from "../state/log.mjs";
 import { detect, patternId } from "../detect.mjs";
+import { parseActiveRules } from "../review/store.mjs";
 
 /**
  * Read the cursor (count of records already analyzed). Missing or malformed => 0.
@@ -32,21 +33,31 @@ function readCursor(p) {
 }
 
 /**
- * Load the rejection memory as a set of pattern ids. Forward-compatible: Stage 3 writes
- * `rejected.json`; until then the file is absent and nothing is filtered. Reading it now
- * keeps detection correct the moment rejections exist — a rejected pattern must never be
- * re-proposed (PRAXIS.md §9).
+ * Pattern ids the user has already ruled on — both rejected and already-approved. A
+ * detection pass must re-propose neither: a rejected pattern must never come back
+ * (PRAXIS.md §9), and an approved one is already live in `active-rules.md`, so surfacing it
+ * again as a "candidate" would be a confusing duplicate. Both files may be absent (nothing
+ * decided yet); any read failure is treated as "nothing decided".
  * @param {ReturnType<typeof paths>} p
  * @returns {Set<string>}
  */
-function readRejected(p) {
+function readDecided(p) {
+  const ids = new Set();
   try {
     const data = JSON.parse(readFileSync(p.rejected, "utf8"));
     const list = Array.isArray(data) ? data : (data?.rejected ?? []);
-    return new Set(list.map((r) => patternId(r.action, r.preceding_event)));
+    for (const r of list) ids.add(patternId(r.action, r.preceding_event));
   } catch {
-    return new Set();
+    // no rejection memory yet
   }
+  try {
+    for (const r of parseActiveRules(readFileSync(p.activeRules, "utf8"))) {
+      ids.add(patternId(r.action, r.preceding_event));
+    }
+  } catch {
+    // no active rules yet
+  }
+  return ids;
 }
 
 /**
@@ -68,9 +79,9 @@ export function runDetection(root, options = {}) {
   }
 
   const result = detect(records, { now: options.now });
-  const rejected = readRejected(p);
+  const decided = readDecided(p);
   const candidates = result.candidates.filter(
-    (c) => !rejected.has(patternId(c.action, c.preceding_event)),
+    (c) => !decided.has(patternId(c.action, c.preceding_event)),
   );
 
   if (!options.dryRun) {

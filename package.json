@@ -4,12 +4,16 @@
   "private": true,
   "description": "A behavioral pattern-learning agent that layers over Claude Code — it observes your workflow, infers repeated action+context patterns, and proposes inspectable rules with human approval.",
   "type": "module",
+  "bin": {
+    "praxis": "bin/praxis.mjs"
+  },
   "scripts": {
     "test": "node --test",
     "demo": "node scripts/demo.mjs",
     "bench": "node scripts/bench.mjs",
     "inspect": "node scripts/inspect-log.mjs",
     "detect": "node scripts/detect.mjs",
+    "review": "node bin/praxis.mjs review",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

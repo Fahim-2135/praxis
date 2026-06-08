@@ -228,3 +228,13 @@ the repo **more professional**, and the documentation **more current** than befo
   calibrated only against real logged behavior (the first real pass correctly proposed nothing).
   Documented a spec deviation in `docs/architecture.md`: the `last_processed` cursor gates whether a
   pass runs (idempotency), it does not slice the analyzed input, because Gates 2–3 need full history.
+- *2026-06-08* — Stage 3 (`praxis review` + write-back) built. Added the human path: the `praxis` CLI
+  (`bin/praxis.mjs`) over a pure state core (`src/review/store.mjs`) and an I/O shell
+  (`src/review/run.mjs`). Established conventions: CLI entry points live under `bin/` (added a `bin`
+  field + `npm run review` to package.json); the single injected file `active-rules.md` is rendered as
+  human-readable prose plus a `<!-- praxis:rule {json} -->` provenance marker per rule, parsed back by
+  marker only (prose is freely editable); the review loop's decision source is injected (`runReview({
+  decide })`) so the interactive readline prompt and scripted tests share one loop; interactive input is
+  read from readline's async iterator for batched-input correctness, treating EOF as a graceful quit.
+  Generalized the cold runner's filter from rejected-only to `readDecided` (rejected ∪ active) so no
+  decided pattern is ever re-proposed. 13 review tests + 1 cold-run case; full suite 54, lint/format clean.

@@ -257,7 +257,109 @@ is unchanged: still a minimal append, no model, no lock, always exit 0.
 
 ---
 
-## Stages 3–5
+## Stage 3 — `praxis review` + write-back (complete)
+
+### What it does
+
+The **human path** (PRAXIS.md §1, §9). A CLI, `praxis review`, walks the pending candidates one at a
+time, showing each pattern's tier and evidence, and lets the user **approve**, **reject**, or **skip**.
+Approvals are written to `active-rules.md` (the human-readable file injected into context next session);
+rejections are recorded in `rejected.json` (rejection memory — never re-proposed); skips stay pending.
+This is the gate between an inferred *candidate* and an *active* rule: nothing the engine proposes ever
+acts until a human says so here.
+
+### Components
+
+| Path | Responsibility |
+|------|----------------|
+| `src/review/store.mjs` | Pure state core. Renders/parses `active-rules.md`, serializes `rejected.json`, and computes the approve/reject/skip state transition (`applyDecision`). No I/O. |
+| `src/review/run.mjs` | I/O shell. Reads the three review files, drives an injected per-candidate decision callback, and persists the results. Holds no prompt logic. |
+| `bin/praxis.mjs` | The `praxis` command. Argument dispatch (`review`, `review --list`, `help`) and the interactive readline prompt. |
+| `package.json` | Adds the `praxis` bin and an `npm run review` script. |
+
+### The three files the review loop owns
+
+- **`active-rules.md`** — approved rules only; the single file injected into context (PRAXIS.md §3).
+  Each rule is rendered as a markdown block: a human/model-facing heading and instruction sentence
+  (tier-aware — "soft confirmation" for safe, "explicit confirmation" for consequential, "never run
+  automatically" for destructive), followed by a machine-readable provenance marker.
+- **`rejected.json`** — an array of `{ action, preceding_event, rejectedAt }`. Matches the shape the
+  cold-path runner already reads, so a rejected pattern is filtered out of every future detection pass.
+- **`candidates.json`** — rewritten on exit with only the still-pending (skipped/undecided) patterns;
+  the provenance fields are preserved. The next cold pass overwrites it wholesale anyway.
+
+### Design decision: one file that is both human-readable and machine-parseable
+
+**Problem.** `active-rules.md` must be *both* prose a human and the model read *and* a data source later
+stages can parse (to know which rules are live, and — Stage 5 — to re-validate their recency). Markdown
+prose alone is fragile to parse; a sidecar JSON would duplicate state and risk drift, and the spec names
+`active-rules.md` as *the* file.
+
+**Decision.** Render each rule as prose **plus** a provenance marker — an HTML comment carrying the
+canonical JSON:
+
+```markdown
+## `git_push` after `test_run`  ·  consequential
+
+When `test_run` just happened, you have repeatedly done `git_push` next (seen 6× across 3 sessions,
+86% consistent, last 2026-06-08…). It is recoverable but not trivial, so offer it and act only on
+explicit confirmation.
+
+<!-- praxis:rule {"action":"git_push","preceding_event":"test_run","tier":"consequential",…} -->
+```
+
+The parser (`parseActiveRules`) reads **only** the markers via regex, so a human can freely edit the
+prose without breaking round-tripping; a corrupt marker is skipped, not fatal. The render/parse pair is
+covered by a lossless round-trip test. This keeps the file a single plain-text artifact a reviewer can
+read top-to-bottom while remaining a reliable data source — inspectability and machine-readability in
+one file.
+
+### Closing a loop gap: approved patterns are not re-proposed
+
+Stage 2's cold runner filtered out `rejected` patterns before writing candidates. Stage 3 generalizes
+that to a single "already decided" filter: `readDecided()` in `src/cold/run.mjs` unions the rejection
+memory **and** the active rules (read via `parseActiveRules`), so an already-approved pattern is never
+surfaced again as a pending candidate. Without this, every cold pass would re-propose rules the user had
+already approved — a confusing duplicate. Both files are optional; a read failure means "nothing decided."
+
+### Design decision: the decision source is injected (testability + a robust prompt)
+
+`runReview(root, { decide })` takes the per-candidate decision as a callback rather than reading the
+keyboard itself. The interactive CLI passes a readline-backed asker; the tests pass a scripted list of
+answers. The exact same loop runs in both, so the persistence logic is unit-tested without a TTY.
+
+The interactive asker pulls lines from readline's **async iterator** rather than issuing sequential
+`rl.question` calls. Sequential `question` calls drop input lines that arrive *between* prompts (batched
+or pasted input), then hang at end-of-input; the async iterator queues lines, so batched input is handled
+correctly and EOF resolves cleanly (treated as `quit` — a graceful stop that persists decisions made so
+far). Unrecognized input re-prompts, so a stray keystroke never decides a rule.
+
+### Usage
+
+```bash
+npm run review            # interactive: approve / reject / skip each candidate
+node bin/praxis.mjs review --list   # read-only: list pending candidates and active rules
+```
+
+### State files (Stage 3 additions)
+
+| File | Status after Stage 3 |
+|------|----------------------|
+| `.praxis/active-rules.md` | Written on first approval. Approved rules only; injected into context in Stage 4. |
+| `.praxis/rejected.json` | Written on first rejection. Filtered out of all future detection passes. |
+| `.praxis/candidates.json` | Now also rewritten by the review loop (remaining/skipped patterns only). |
+
+### Tests
+
+`test/review.test.mjs` (13 tests): render/parse round-trip and lossless-ness, prose-tolerant and
+corrupt-marker-tolerant parsing, the `applyDecision` transitions (approve/reject/skip + dedupe), and the
+full `runReview` loop over a temp project (persists approvals/rejections, rewrites the pending pool,
+stops at `quit`, no-ops on empty, reloads rejection memory). `test/cold-run.test.mjs` gains a case
+proving already-approved patterns are not re-proposed. Full suite: 54 tests, lint and format clean.
+
+---
+
+## Stages 4–5
 
 Not yet built. See [`PRAXIS.md` §10](../PRAXIS.md) for the planned sequence. This document is
 extended as each stage lands.
