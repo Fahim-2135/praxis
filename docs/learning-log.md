@@ -92,45 +92,68 @@ gives the candidates somewhere to go.
 
 ## Stage 3 — `praxis review` and the approval loop
 
-**What we built.** The human in the loop. A command, `praxis review`, that shows me each pattern the
-engine proposed — with its evidence and risk tier — and lets me approve, reject, or skip it. Approvals
-become real rules in a file; rejections are remembered so they never come back; skips wait for next time.
-This is the gate: nothing the engine infers ever takes effect until I say so here.
+**What we built, in one line.** The part where *I* decide. Stage 2 made a shortlist of habits it noticed;
+Stage 3 is me going down that shortlist and stamping each one **yes / no / later**.
 
-**The plain version.** The engine from Stage 2 builds a shortlist but is powerless — it can only
-*suggest*. Stage 3 is me sitting down with that shortlist and a yes/no/later stamp. Say *yes* and the
-habit gets written into a rulebook the assistant will read; say *no* and it goes onto a "never ask me
-this again" list; say *later* and it stays on the shortlist. The rulebook is a plain file I can open and
-read like a page of notes — not hidden machinery.
+**The plain version.** The engine from Stage 2 can only *suggest* — it writes a shortlist and stops. It
+has no power to change anything on its own (that's on purpose; that's the whole safety idea). Stage 3 is a
+command I run, `praxis review`. It shows me one habit at a time — what it is, how often I did it, how
+risky it is — and I answer:
 
-**The technical version.** Stage 3 is the human path: a CLI (`bin/praxis.mjs`) over a pure state core
-(`src/review/store.mjs`) and an I/O shell (`src/review/run.mjs`). Approve writes to `active-rules.md`,
-reject to `rejected.json`, skip leaves the candidate in `candidates.json`. The detector now filters out
-*both* rejected and already-approved patterns, so nothing decided is ever re-proposed. The decision
-source is injected into `runReview`, so the readline prompt and the test's scripted answers run the
-identical loop.
+- **yes (approve)** → the habit gets written into a rulebook the assistant will read later.
+- **no (reject)** → it goes on a "never suggest this again" list.
+- **later (skip)** → it stays on the shortlist for next time.
 
-**The thing that actually clicked.** Two ideas. First, **one file can serve two masters if you separate
-the channels.** `active-rules.md` has to be readable prose *and* reliable data. Instead of choosing, I
-render the prose for humans and tuck a machine-readable marker (`<!-- praxis:rule {...} -->`) under each
-rule; the parser reads only the markers, so editing the prose can't break the data. That's the whole
-design tension of the project — inspectable *and* machine-driven — solved in miniature. Second, **the
-approve/reject/skip *math* and the *keyboard* are different problems.** By making the decision a function
-passed into the loop, the file-writing logic is fully testable with no terminal, and the fiddly readline
-part stays a thin shell. The same separation-of-pure-logic-from-I/O discipline from Stage 1, applied
-again.
+The rulebook is a plain file I can open and read like a page of notes. Nothing is hidden. Nothing acts
+until I say yes.
 
-**The bug worth remembering.** My first interactive prompt issued one `rl.question` per candidate. With a
-human typing, fine; but feed it several answers at once (paste, or a piped test) and lines that arrive
-*between* questions get silently dropped, then it hangs at end-of-input. The fix was to read from
-readline's async *iterator*, which queues lines so none are lost, and to treat end-of-input as a graceful
-"quit." Lesson: a prompt loop has to be correct for batched input, not just for one-key-at-a-time typing.
+**The one idea I want to remember: a single file doing two jobs.** The rulebook (`active-rules.md`) has to
+work for *two different readers at once*:
 
-**Concepts exercised:** CLI design and argument dispatch, interactive input via `node:readline/promises`
-and its async iterator, a round-trippable human+machine file format (prose + provenance markers),
-dependency injection for testability (the decision callback), idempotent rejection memory, and closing
-the feedback gap so decided patterns aren't re-proposed.
+1. **Me, a human** — I open it and read plain English: "you push after tests; offer it but ask first."
+2. **The program** — later, Praxis has to read that same file and get the *exact* habit data back out of
+   it.
 
-**Gate before Stage 4:** approvals land in `active-rules.md` and rejections in `rejected.json`; the
-detector respects both. Stage 4 is the feedback hook — `SessionStart` prints `active-rules.md` into
-context so the model actually acts on the approved rules. That closes the loop end to end.
+I had three options:
+
+- Write it as **plain English only** → nice for me, but a program reading loose English is unreliable; one
+  reworded sentence and it misreads.
+- Write **two separate files** (one English for me, one data-file for the program) → the program is happy,
+  but now I have two files that can quietly drift out of sync, and the spec says there must be *one* file.
+- **What I did:** one file = English for me, **plus a small hidden tag under each rule holding the exact
+  data** for the program. The program only ever reads the tags, so I can freely edit the English without
+  breaking it.
+
+That last choice is the whole project in miniature: it has to be *readable by a human* and *usable by a
+machine* at the same time, and I refused to give up either.
+
+**A second small idea: separate "what to decide" from "how I typed it."** The logic that updates the
+files (approve/reject/skip) is kept apart from the part that reads my keypresses. That means I could test
+all the file logic automatically — by feeding it a fake list of answers like `["yes","no","later"]` —
+without anyone actually sitting at a keyboard. Same trick as Stage 1: keep the thinking part separate from
+the messy input/output part, so the thinking part is easy to test.
+
+**A bug worth remembering (plain).** My first version asked the questions one at a time, which is fine when
+a person types one answer, waits, types the next. But if several answers arrive *at once* (e.g. a test
+pipes them in together), the in-between answers got dropped and the program froze waiting forever. Fix:
+read the answers from a *queue* that holds them until I'm ready, and if the answers run out, just stop
+politely. Lesson: handle input arriving in a batch, not only one keystroke at a time.
+
+**The technical words (so the vocabulary lands too).** Each term, unpacked:
+
+- **CLI** = "command-line interface" — a program you run by typing a command (`praxis review`), no buttons.
+- **the human path** — the spec's name for "the step where a person, not the machine, makes the call."
+- **`active-rules.md` / `rejected.json` / `candidates.json`** — the three files: approved rules, the
+  never-again list, and the pending shortlist.
+- **provenance marker** — the hidden data tag I tuck under each rule (`<!-- praxis:rule {...} -->`).
+  "Provenance" = where-it-came-from; the tag records the rule's exact origin data.
+- **parser** — the small piece of code that *reads* a file and pulls structured data out of it.
+- **dependency injection** — fancy name for "pass the keyboard-reading part *in* as an argument," which is
+  what let me swap in fake answers for testing.
+- **idempotent** — "doing it twice changes nothing extra"; here, a rejected/approved habit is never
+  re-proposed, no matter how many times detection runs.
+
+**Gate before Stage 4:** my yes/no answers now stick — approvals in the rulebook, rejections on the
+never-again list — and the engine respects both. Stage 4 is the step that finally *uses* the rulebook:
+when a session starts, Praxis reads `active-rules.md` out loud into the assistant's context, so it
+actually follows the habits I approved. That closes the whole loop.
