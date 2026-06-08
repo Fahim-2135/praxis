@@ -6,83 +6,107 @@
 
 ---
 
-## Stage 1 — The hot path
+## Stage 1 — The hot path (the logger)
 
-**What we built.** A hook that fires after every action I take in Claude Code, turns that action
-into a clean label, and writes one line to a log file. Nothing clever — that's the whole point.
+**What we built, in one line.** The part that *watches*. Every time I do something in Claude Code, a
+tiny script writes one line in a logbook saying what I did — then gets out of the way.
 
-**The plain version.** Think of a security camera that, every time a door opens, writes one line
-in a notebook: *what happened, what happened right before it, when, and which visit it was.* It
-never stops to think, never phones anyone, never rewrites old pages — it jots one line and gets
-out of the way. All the actual reasoning ("is this a habit worth automating?") happens later, when
-nobody's waiting.
+**The plain version.** Picture a security camera wired to a notebook. Every time a door opens it writes
+*one* line: what happened, what happened right before it, when, and which visit it was. It never stops to
+think, never phones anyone, never rewrites old pages. Jot one line, done. All the actual thinking ("is
+this a habit worth automating?") happens *later*, when nobody is waiting on it.
 
-**The technical version.** Stage 1 is a `PostToolUse` hook that performs deterministic
-rule-based normalization of each tool invocation into a stable `action`, then does a single
-atomic append to an append-only JSONL event log. It is held to a strict hot-path contract: no
-model call, no network, no lock, no read-modify-write of the log, and it always exits 0 so a
-logging failure can never disturb the editor. Expensive analysis is deferred to the cold path that
-runs at session boundaries.
+**The one idea I want to remember: this code runs on *everything*, so it must do *almost nothing*.** This
+script fires after every single action I take. If it were even a little slow, every action I do would feel
+sluggish — because its delay gets added to all of them. So the rule is brutal: write one line and leave.
+No thinking, no internet, no waiting. That "do almost nothing" limit isn't laziness — it's the thing that
+keeps the whole tool invisible while I work. (The name for this delay-on-every-action is **latency** — the
+lag between doing a thing and it finishing.)
 
-**The thing that actually clicked.** The whole architecture is one boundary: *latency*. Because
-this code runs on every keystroke-level action, it's allowed to do almost nothing — and that
-constraint is a feature, not a limitation. The discipline of "append one line and leave" is what
-keeps the tool invisible in use. I also saw why `preceding_event` is the hard field: a fresh
-process has no memory, so carrying "what came before" across invocations takes a deliberate trick
-(a tiny per-session marker) rather than reading the log — which the latency budget forbids.
+**A neat trick worth remembering: how it knows "what I did right before."** Each time the script runs, it
+is a brand-new program with no memory of last time. But I want to record *what came before* each action.
+Re-reading the whole logbook to find out would be too slow (breaks the "do almost nothing" rule). So
+instead it keeps a one-word sticky note per work-session: it reads the note ("last thing was: edit a
+file"), writes the new line, then updates the note. Cheap, no re-reading the big logbook.
 
-**Concepts exercised:** hooks (PostToolUse), JSONL append-only logs, the hot/cold path split,
-deterministic normalization, atomic appends vs. locking, the idempotency cursor, and graceful
-non-blocking error handling.
+**Why it can never crash my editor.** If the logger ever hits an error, it quietly notes it in a side file
+and *still reports success*. A tool whose only job is to watch must never break the thing it's watching.
 
-**Gate before Stage 2:** after a day of real use — (a) the log is clean and the intents are
-correct, and (b) Claude Code still feels snappy. If it lags, the hook isn't minimal enough and
-that gets fixed before anything else.
+**The technical words (so the vocabulary lands too).**
+
+- **hook** — a script Claude Code runs automatically at a set moment. Ours runs *after every tool call*
+  (the official name is a **PostToolUse hook**).
+- **the hot path** — the spec's name for "code that runs on every action and therefore must be instant."
+  Its opposite, the **cold path** (Stage 2), runs rarely and is allowed to be slow.
+- **normalization** — turning a messy raw command (`git push origin main`) into one tidy label
+  (`git_push`) so the same intent always counts as the same thing.
+- **append-only log / JSONL** — a file you only ever *add* to the bottom of, one line per event. ("JSONL" =
+  one self-contained record per line.) Adding a line is cheap; a crash can only hurt the last line.
+- **latency** — the delay added to an action. The whole Stage 1 design exists to keep this near zero.
+
+**Gate before Stage 2:** after a day of real use — (a) the logbook is clean and the labels are right, and
+(b) Claude Code still feels snappy. If it lags, the logger isn't minimal enough and that gets fixed before
+anything else.
 
 ---
 
-## Stage 2 — Detection and the five gates
+## Stage 2 — Detection and the five gates (the shortlist maker)
 
-**What we built.** The "brain": code that reads the log and decides which repeated behaviors are
-real habits worth proposing. It runs at the start and end of a session (never mid-work), scores
-every `(action, what-came-before)` pair against five filters, and writes the survivors to a
-candidates file I'll later approve or reject.
+**What we built, in one line.** The part that *thinks*. It reads the logbook and decides which repeated
+behaviors are real habits worth proposing — and writes them on a shortlist.
 
-**The plain version.** Imagine going back through that security-camera notebook from Stage 1 and
-asking, for each thing that keeps happening: did it happen *enough* times? On *different visits*,
-or all in one frantic afternoon? *Almost every time* the setup occurred, or just occasionally?
-*Recently*, or has it gone stale? Only the patterns that pass all four questions get written on a
-shortlist — and a fifth note records how risky each one is, which decides how much freedom it's
-ever allowed. Nothing acts; it just builds a shortlist.
+**The plain version.** Go back through the Stage 1 notebook and, for each thing that keeps happening, ask
+four questions:
 
-**The technical version.** Stage 2 is the cold path: a `SessionStart`/`SessionEnd` hook that runs a
-pure, deterministic promotion engine over the JSONL log. Five sequential gates — frequency,
-cross-session spread, consistency (hits over the context's denominator), recency, and a
-non-rejecting reversibility classification — filter patterns into `candidates.json`. It is all
-arithmetic, no model: determinism is required so the same log always yields the same rules. A
-`last_processed` cursor makes the dual trigger idempotent. `SessionStart` is source-filtered to
-startup/resume so a mid-work compaction never kicks off detection.
+1. Did it happen **enough times**? (not just once or twice)
+2. On **different days/sessions**, or all in one frantic afternoon? (one stuck afternoon isn't a habit)
+3. **Almost every time** the setup happened, or only occasionally? (otherwise it's just coincidence)
+4. **Recently**, or has it gone stale?
 
-**The thing that actually clicked.** Two things. First, **the denominator is everything.** "He
-pushed 5 times" is meaningless until you ask "out of how many chances?" Gate 3 counts the
-context's total occurrences, not just the hits — that's the line between a habit and a
-coincidence. Second, and bigger: **the right answer is often "propose nothing."** I ran the engine
-over my own log expecting to see it work, and it returned zero candidates — because my data is
-mostly one long session, and Gate 2 correctly refused to call that a habit. The instinct is to
-lower a threshold so *something* shows up. That instinct is the trap. The spec is explicit:
-calibrate against real behavior, never against the data you wish you had. An engine that
-manufactures rules from thin data is worse than one that stays quiet.
+Only behaviors that pass all four land on the shortlist. A fifth question just labels **how risky** each
+one is (run tests = safe; delete files = dangerous), which later decides how much freedom it's ever
+allowed. Important: nothing acts here. It only builds a shortlist.
 
-**Why "detection subagent" is not an LLM.** The build order's word "subagent" tempted a model
-call. Putting one here would have been a real mistake — a non-deterministic judge fragments the
-counts the gates depend on and destroys inspectability. The detection "agent" is deterministic
-code. Catching that was the spec protecting the project from a plausible-sounding wrong turn.
+**The one idea I want to remember: count the "out of how many," not just the hits.** "I pushed 5 times"
+sounds like a lot — but it means nothing until you ask *out of how many chances?* If I pushed 5 times after
+tests, and tests ran 6 times total, that's a real habit (5 of 6). If tests ran 50 times, then pushing only
+5 times is basically random. So the key question 3 above divides the hits by the *total* opportunities.
+That division is the line between a real habit and a fluke. (The "out of how many" number is called the
+**denominator** — the bottom of the fraction.)
 
-**Concepts exercised:** the cold path, sequential gating / filter pipelines, the
-consistency-denominator idea, cursor-based idempotency, hook source-filtering, reversibility
-tiers, deterministic vs. model-based classification, and calibration discipline (not tuning
-against imagined data). Also a small engineering hygiene pass: extracting shared hook I/O and the
-log reader so nothing is duplicated across the two hooks.
+**The bigger lesson: sometimes the correct answer is "propose nothing."** I ran this over my own real
+logbook expecting to watch it find habits. It found **zero**. Why? My history was mostly one long session,
+and question 2 ("different days?") correctly refused to call that a habit. The tempting move is to loosen a
+rule so *something* shows up. That is the trap. A system that invents habits from thin data is worse than
+one that honestly stays quiet. The rule: tune the thresholds against *real* behavior once there's enough
+of it — never against the data I wish I had.
+
+**Why the "thinking" part is plain math, not an AI.** The plan called this a "detection subagent," which
+made it sound like it should ask an AI to judge. I deliberately did **not**. If an AI judged it, the same
+logbook could produce *different* habits on different days (AI isn't perfectly repeatable) — which would
+scramble the very counts the four questions depend on, and make the result impossible to trust or inspect.
+So the thinking here is ordinary arithmetic: same input always gives same output. Catching that temptation
+was the plan protecting the project from a smart-sounding wrong turn.
+
+**The technical words (so the vocabulary lands too).**
+
+- **the cold path** — the opposite of Stage 1's hot path: code that runs only when a session starts or
+  ends, so it's *allowed* to take its time and think.
+- **pattern** — not just an action, but an action *plus what came right before it*: "push **after tests**,"
+  not "push." That pairing is what makes a rule meaningful.
+- **the five gates** — the four yes/no filters above plus the risk label, applied in order. A "gate" is
+  just a check a pattern has to pass to continue.
+- **denominator** — the "out of how many" total; counting it is what kills coincidences.
+- **candidates** — the shortlist (`candidates.json`): patterns that passed, waiting for my yes/no in
+  Stage 3.
+- **deterministic** — "same input always gives the same output." Required here so the system stays
+  trustworthy and inspectable; an AI judge would not be deterministic.
+- **idempotent** — "running it twice does no extra harm." Detection runs at both session-end and the next
+  session-start (belt and suspenders), and a small bookmark file makes the second run a harmless no-op if
+  there's nothing new.
+
+**Gate before Stage 3:** the engine is correct and honest — it stays quiet on thin data instead of
+inventing rules. Stage 3 gives those shortlisted candidates somewhere to go: my yes/no/later decision.
 
 **Gate before Stage 3:** the engine is correct and quiet on thin data. Stage 3 builds `praxis
 review` — the approval loop that turns a candidate into an active rule — which is what finally
