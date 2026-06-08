@@ -1,14 +1,17 @@
 # Praxis
 
-**A behavioral pattern-learning agent that layers over Claude Code.** It watches how you
-actually work, detects the action-and-context patterns you repeat, and proposes rules that
-automate them — with your approval, and never for anything irreversible.
+**Praxis is a behavioral-inference agent layered over Claude Code:** it logs every tool call on a
+brutally minimal hot path, then mines the stream off-path for repeated `(action, context)` patterns.
+A five-gate promotion engine — frequency, cross-session spread, consistency, recency, reversibility —
+turns raw repetition into proposed automations, killing coincidence with pure arithmetic over a local
+log. The model is never trained; an inspectable rule file steers it, and irreversible actions are
+hard-blocked at the hook layer, never auto-run.
 
 The key distinction: Praxis is **not** a note tool you fill in. It *infers* the rules you
 never stated. You don't tell it "I always push after tests pass" — it notices.
 
-> **Status:** Stage 1 of 5 complete (the hot path). The detection engine, review loop,
-> feedback injection, and self-pruning are built in later stages — see
+> **Status:** Stages 1–2 of 5 complete (the hot path and the detection engine). The review
+> loop, feedback injection, and self-pruning are built in later stages — see
 > [Build stages](#build-stages). This README grows with the build.
 
 ---
@@ -44,7 +47,7 @@ Four paths, two of them hard-separated by a strict latency boundary.
                                                   │ appends
                                                   ▼
                                           .praxis/log.jsonl
-                                                  │ reads (unprocessed only)
+                                                  │ reads (only when new events exist)
                           ┌───────────────────────┴─────────────────────┐
    session start / end    │  COLD PATH  (SessionStart + SessionEnd)      │
    ───────────────────────▶  run the 5 gates -> write candidates         │
@@ -97,6 +100,26 @@ real logged behavior — never invented in the abstract.)
 
 Every gate is pure arithmetic over the local log. No model call, no network, no cost.
 
+The build order calls this a "detection subagent," but there is deliberately **no model in it**.
+A non-deterministic judge would map the same log to different rules on different runs, fragmenting
+the counts the gates depend on and destroying the inspectability the system promises. Detection is
+plain arithmetic on purpose.
+
+### Calibration is part of the design, not a one-time setup
+
+Thresholds start as guesses and are tuned against *real* logged behavior — never invented in the
+abstract (the spec forbids tuning against imagined data). `npm run detect` runs the engine
+read-only and prints both the survivors and the **near-misses with the exact gate each died at**,
+which is what makes a threshold falsifiable.
+
+The first calibration run over this repo's own Stage-1 log is illustrative: **zero candidates** from
+four sessions of activity. The two highest-volume patterns — `file_edit` after `file_edit` (27×) and
+`file_read` after `file_read` (16×) — are bursts of editing and reading *within* a session, and Gate 2
+(cross-session spread) correctly refuses to mistake them for habits. Everything else falls at Gate 1
+(frequency). That is the engine working: with little cross-session history, the honest answer is to
+propose nothing rather than manufacture a rule. Real candidates emerge only once a behavior actually
+recurs *across* sessions.
+
 ---
 
 ## Safety model
@@ -122,7 +145,7 @@ personal behavioral data).
 | File | Contents |
 |------|----------|
 | `log.jsonl` | Append-only raw event stream, one normalized event per line. |
-| `last_processed` | Read cursor (line count) marking where the last detection pass ended. |
+| `last_processed` | Read cursor (count of analyzed records) marking where the last detection pass ended. |
 | `candidates.json` | Patterns that cleared all gates, awaiting your approval. Affects nothing. |
 | `active-rules.md` | Approved rules **only** — the single human-readable file injected into context. |
 | `rejected.json` | Declined patterns, so they are never re-proposed. |
@@ -167,6 +190,13 @@ that reveals which rules to add next):
 
 ```bash
 npm run inspect
+```
+
+Run the detection engine over the log to see candidates and near-misses (read-only; the cold-path
+hook does this automatically at session boundaries). Pass `--write` to persist `candidates.json`:
+
+```bash
+npm run detect
 ```
 
 Run the tests (no install needed — the suite uses Node's built-in test runner):
@@ -214,7 +244,8 @@ suite on Node 18, 20, and 22 for every push and pull request.
 Built strictly in order — each stage's real output is the next stage's tuning input.
 
 1. **Hot path** ✅ — PostToolUse logging, rule-based normalization, `log.jsonl`, `last_processed`.
-2. **Detection + 5 gates** — the promotion engine, run over the real Stage-1 log.
+2. **Detection + 5 gates** ✅ — the promotion engine + cursor-idempotent cold path, run over the real
+   Stage-1 log.
 3. **`praxis review` + write-back** — the approval loop.
 4. **Feedback hook** — SessionStart injects `active-rules.md`; the loop closes.
 5. **Self-pruning** — recency re-validation retires stale rules.

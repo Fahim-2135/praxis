@@ -142,7 +142,115 @@ is the final confirmation that the hook fires correctly in situ.
 
 ---
 
-## Stages 2–5
+## Stage 2 — Detection + the 5 gates (complete)
+
+### What it does
+
+A **cold path** runs at session boundaries (SessionStart startup/resume, and SessionEnd best-effort).
+It reads the log written by Stage 1 and runs the **promotion engine** — five sequential gates — over
+it, writing the patterns that survive to `.praxis/candidates.json`. Nothing here touches the hot path:
+the gates are pure arithmetic, run only when a session begins or ends.
+
+### Components
+
+| Path | Responsibility |
+|------|----------------|
+| `src/detect.mjs` | The promotion engine. Pure `detect(records, opts) -> { candidates, dropped, … }`. The five gates + reversibility classification. No I/O, no model. |
+| `src/cold/run.mjs` | `runDetection(root, opts)` — the I/O shell: read log + cursor, run the engine if new events exist, write `candidates.json`, advance the cursor. |
+| `src/hooks/session-detect.mjs` | The SessionStart/SessionEnd hook entry. Source-filters (startup/resume only), calls the runner, swallows failures, exits 0. |
+| `src/state/log.mjs` | Shared `readLog(path)` — the reading side of the log (extracted so the inspector and the cold path parse JSONL the same way). |
+| `src/hooks/io.mjs` | Shared hook plumbing (`readStdin`, `clean`, `noteError`) used by both the hot- and cold-path hooks. |
+| `scripts/detect.mjs` | Calibration CLI (`npm run detect`): runs the engine read-only and prints candidates **and** the near-misses with the gate each failed. `--write` persists. |
+| `.claude/settings.json` | Now also registers the `SessionStart` and `SessionEnd` hooks. |
+
+### The five gates (`src/detect.mjs`)
+
+A *pattern* is an `(action, preceding_event)` pair. It must clear, in order:
+
+1. **Frequency** — seen ≥ `minOccurrences` (5) times.
+2. **Cross-session spread** — across ≥ `minSessions` (3) distinct `session_id`s. *The workhorse:* it
+   kills within-one-session repetition masquerading as a habit.
+3. **Consistency** — of all events that followed this `preceding_event` (the denominator), the
+   action followed ≥ `minConsistency` (0.8). Counting the denominator is what kills coincidence.
+4. **Recency** — at least one occurrence within `recencyDays` (5).
+5. **Reversibility classification** — assigns a `safe` / `consequential` / `destructive` tier. This
+   gate never rejects; it records how an approved rule would be *allowed to behave* (PRAXIS.md §7).
+   Unknown actions default to `consequential` (never silent, but not permanently sidelined).
+
+Thresholds live in one frozen `THRESHOLDS` table and are overridable per-call for calibration. They
+are **starting guesses**, tuned only against real logged behavior (PRAXIS.md §6, §12).
+
+### Why the gates run over the whole log, and what the cursor is actually for
+
+A pattern's significance — cross-session spread, the consistency denominator — is a property of the
+**entire** stream, not of the events added since the last pass. So the engine always analyzes the full
+log. The `last_processed` cursor therefore does **not** slice the input; its only job is **idempotency**:
+a pass runs only if the log has more records than the cursor, then advances the cursor to the new total.
+
+This is what makes the belt-and-suspenders dual trigger safe (PRAXIS.md §1). SessionEnd fires a pass
+(instant proposals); the next SessionStart fires another (surviving hard closes / killed terminals).
+Whichever runs first does the work and advances the cursor; the second sees no new events and no-ops.
+Each event is thus analyzed into a candidates snapshot exactly once per change, with no double-proposing.
+
+> **Deviation from the spec's wording.** PRAXIS.md §3 describes the cursor as "only unprocessed events
+> get analyzed." Taken literally that breaks Gates 2–3, whose denominators need full history. The cursor
+> is implemented as a *run/skip* gate (idempotency) rather than an input filter — the same intent (no
+> redundant work, dual triggers safe) realized in the only way that keeps the gate math correct.
+
+### Source filtering (non-negotiable)
+
+`SessionStart` fires on `startup`, `resume`, `clear`, **and** `compact`. Only startup/resume are real
+session boundaries; clear and compact happen mid-work, and running detection then would interrupt
+active work (PRAXIS.md §2, §12). `session-detect.mjs` runs only on startup/resume. SessionEnd carries
+no `source` and always runs (best effort).
+
+### `candidates.json` shape
+
+```json
+{
+  "generatedAt": "2026-06-08T11:22:20.774Z",
+  "thresholds": { "minOccurrences": 5, "minSessions": 3, "minConsistency": 0.8, "recencyDays": 5 },
+  "analyzed": { "events": 93, "sessions": 4 },
+  "candidates": [
+    {
+      "action": "git_push",
+      "preceding_event": "test_run",
+      "tier": "consequential",
+      "status": "candidate",
+      "evidence": { "count": 6, "sessions": 3, "consistency": 0.86, "lastSeen": "…" }
+    }
+  ]
+}
+```
+
+The provenance (thresholds + what was analyzed) is written alongside the candidates so a reviewer can
+see *under what rules* a proposal was made. The runner reads `rejected.json` if it exists and filters
+out already-declined patterns — forward-compatible with Stage 3, which creates that file.
+
+### Calibration result (the point of running over real data)
+
+The first pass over this repo's own Stage-1 log — 93 events across 4 sessions — produced **zero
+candidates**, and that is the engine working correctly, not a failure:
+
+- `file_edit` after `file_edit` (27×) and `file_read` after `file_read` (16×) are the highest-volume
+  patterns, but each spans only **2** sessions → killed by Gate 2. Their consistency (0.68, 0.73) is
+  below 0.8 as well. These are exactly the within-session bursts Gate 2 exists to reject.
+- Every other pattern falls at Gate 1 (frequency): there simply isn't enough cross-session history yet.
+
+The honest takeaway is that thresholds are **not** disproven by this data — there is just not enough of
+it to promote anything, which is the correct behavior for a system that must not manufacture rules. Real
+candidates appear only once a behavior recurs *across* sessions. We resist lowering thresholds to force a
+candidate, because tuning against thin/imagined data is precisely what the spec forbids (PRAXIS.md §12).
+
+### Hot-path refactor (no behavior change)
+
+Extracting `readStdin` / `clean` / `noteError` into `src/hooks/io.mjs` and the JSONL loader into
+`src/state/log.mjs` removed duplication between the two hooks and the inspector. The hot path's contract
+is unchanged: still a minimal append, no model, no lock, always exit 0.
+
+---
+
+## Stages 3–5
 
 Not yet built. See [`PRAXIS.md` §10](../PRAXIS.md) for the planned sequence. This document is
 extended as each stage lands.

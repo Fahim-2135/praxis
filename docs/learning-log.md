@@ -38,3 +38,52 @@ non-blocking error handling.
 **Gate before Stage 2:** after a day of real use — (a) the log is clean and the intents are
 correct, and (b) Claude Code still feels snappy. If it lags, the hook isn't minimal enough and
 that gets fixed before anything else.
+
+---
+
+## Stage 2 — Detection and the five gates
+
+**What we built.** The "brain": code that reads the log and decides which repeated behaviors are
+real habits worth proposing. It runs at the start and end of a session (never mid-work), scores
+every `(action, what-came-before)` pair against five filters, and writes the survivors to a
+candidates file I'll later approve or reject.
+
+**The plain version.** Imagine going back through that security-camera notebook from Stage 1 and
+asking, for each thing that keeps happening: did it happen *enough* times? On *different visits*,
+or all in one frantic afternoon? *Almost every time* the setup occurred, or just occasionally?
+*Recently*, or has it gone stale? Only the patterns that pass all four questions get written on a
+shortlist — and a fifth note records how risky each one is, which decides how much freedom it's
+ever allowed. Nothing acts; it just builds a shortlist.
+
+**The technical version.** Stage 2 is the cold path: a `SessionStart`/`SessionEnd` hook that runs a
+pure, deterministic promotion engine over the JSONL log. Five sequential gates — frequency,
+cross-session spread, consistency (hits over the context's denominator), recency, and a
+non-rejecting reversibility classification — filter patterns into `candidates.json`. It is all
+arithmetic, no model: determinism is required so the same log always yields the same rules. A
+`last_processed` cursor makes the dual trigger idempotent. `SessionStart` is source-filtered to
+startup/resume so a mid-work compaction never kicks off detection.
+
+**The thing that actually clicked.** Two things. First, **the denominator is everything.** "He
+pushed 5 times" is meaningless until you ask "out of how many chances?" Gate 3 counts the
+context's total occurrences, not just the hits — that's the line between a habit and a
+coincidence. Second, and bigger: **the right answer is often "propose nothing."** I ran the engine
+over my own log expecting to see it work, and it returned zero candidates — because my data is
+mostly one long session, and Gate 2 correctly refused to call that a habit. The instinct is to
+lower a threshold so *something* shows up. That instinct is the trap. The spec is explicit:
+calibrate against real behavior, never against the data you wish you had. An engine that
+manufactures rules from thin data is worse than one that stays quiet.
+
+**Why "detection subagent" is not an LLM.** The build order's word "subagent" tempted a model
+call. Putting one here would have been a real mistake — a non-deterministic judge fragments the
+counts the gates depend on and destroys inspectability. The detection "agent" is deterministic
+code. Catching that was the spec protecting the project from a plausible-sounding wrong turn.
+
+**Concepts exercised:** the cold path, sequential gating / filter pipelines, the
+consistency-denominator idea, cursor-based idempotency, hook source-filtering, reversibility
+tiers, deterministic vs. model-based classification, and calibration discipline (not tuning
+against imagined data). Also a small engineering hygiene pass: extracting shared hook I/O and the
+log reader so nothing is duplicated across the two hooks.
+
+**Gate before Stage 3:** the engine is correct and quiet on thin data. Stage 3 builds `praxis
+review` — the approval loop that turns a candidate into an active rule — which is what finally
+gives the candidates somewhere to go.

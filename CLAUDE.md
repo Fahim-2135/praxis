@@ -219,3 +219,12 @@ the repo **more professional**, and the documentation **more current** than befo
   state-file handling in `src/state/`), tests under `test/` via the built-in `node --test`
   runner. Created `README.md`, `docs/architecture.md`, and `docs/learning-log.md`; initialized
   git with a `.gitignore` that excludes `.praxis/` runtime state and `.claude/settings.local.json`.
+- *2026-06-08* — Stage 2 (detection + 5 gates) built. Added the cold path: a pure, deterministic
+  promotion engine (`src/detect.mjs`), its cursor-idempotent I/O runner (`src/cold/run.mjs`, a new
+  `src/cold/` home for cold-path code), and a source-filtered `SessionStart`/`SessionEnd` hook
+  (`src/hooks/session-detect.mjs`). Added the `npm run detect` calibration CLI. Extracted shared
+  hook I/O (`src/hooks/io.mjs`) and the JSONL reader (`src/state/log.mjs`) to remove duplication.
+  Convention reaffirmed: detection is deterministic arithmetic — never an LLM — and thresholds are
+  calibrated only against real logged behavior (the first real pass correctly proposed nothing).
+  Documented a spec deviation in `docs/architecture.md`: the `last_processed` cursor gates whether a
+  pass runs (idempotency), it does not slice the analyzed input, because Gates 2–3 need full history.

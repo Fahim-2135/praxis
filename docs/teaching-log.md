@@ -273,3 +273,66 @@ ESLint with nothing to fix, which is a good sign it was already clean.
 correctness gate distinct from Prettier's formatting gate, with stylistic rules omitted to avoid
 tool conflict. Wired `npm run lint` into CI ahead of `format:check` and `test`. The existing source
 passed with zero findings, confirming the hand-written code already met the recommended rule set.
+---
+
+### 2026-06-08 — Stage 2: the cold path and the promotion engine
+
+**Concept — the cold path (and why it is separate from the hot path):** Stage 1 was the hot path —
+the code that runs on *every* action and must be instant. The *cold path* is its opposite: it runs
+only at session boundaries (when a session starts or ends), so it's allowed to think. This is where
+the actual reasoning lives. The split is the whole architecture: cheap-and-constant work on the hot
+path, expensive-and-occasional work on the cold path, with a log file as the seam between them.
+
+**Concept — a "pattern" and the five gates:** A pattern isn't an action; it's an `(action,
+preceding_event)` pair — "push *after* tests," not "push." The promotion engine decides which pairs
+are real habits using five filters in order: (1) **frequency** — happened enough times; (2)
+**cross-session spread** — across enough *different* sessions; (3) **consistency** — of all the times
+the setup occurred, the action followed often enough; (4) **recency** — happened recently; (5)
+**reversibility** — classify how risky it is (this one never rejects, it just labels). The first four
+kill junk; the fifth governs autonomy later.
+
+**Concept — the consistency denominator:** The non-obvious gate. "Pushed 5 times" is meaningless
+until you ask "out of how many opportunities?" Gate 3 divides the hits by how many events followed
+that same `preceding_event` *at all*. Counting the denominator — not just the hits — is the line
+between a habit and a coincidence.
+
+**Concept — idempotency and the cursor:** Doing something twice should be the same as doing it once.
+Detection runs at *both* SessionEnd and the next SessionStart (belt-and-suspenders, so a hard close
+can't lose proposals). The `last_processed` cursor makes that safe: a pass runs only if there are
+new events, then advances the cursor. Whichever trigger fires first does the work; the second sees
+nothing new and no-ops. Note the subtlety: the gates still analyze the *whole* log (cross-session
+and consistency counts need full history) — the cursor gates *whether to run*, not *what to read*.
+
+**Concept — source filtering a hook:** `SessionStart` fires on startup, resume, clear, AND compact.
+Clear/compact happen mid-work; running detection then would interrupt active work. So the hook
+inspects the event's `source` field and runs only on startup/resume. A hook firing isn't a blank
+cheque to act — you filter on *why* it fired.
+
+**Plain — what I just did:** I built the part of Praxis that actually thinks. It reads the log of
+everything you've done, and for each thing that keeps happening it asks five questions — did it
+happen enough, on enough separate occasions, almost every time the setup occurred, recently, and how
+risky is it? Only behaviors that pass get written onto a shortlist for you to approve. It runs
+quietly when a session opens or closes, never while you're working. Then I ran it over my own real
+log — and it proposed *nothing*, correctly, because my history is mostly one long session and the
+"different occasions" test refused to call that a habit. That's the engine being honest, not broken.
+
+**Technical — how an engineer says it:** Implemented the cold path. `src/detect.mjs` is a pure,
+deterministic promotion engine: `detect(records)` groups events by `(action, preceding_event)`,
+evaluates four sequential kill-or-pass gates (frequency, cross-session cardinality, consistency over
+the context denominator, recency) plus a non-rejecting reversibility classifier, and returns
+candidates with evidence plus the dropped near-misses tagged by failed gate. `src/cold/run.mjs`
+wraps it with cursor-gated idempotency and writes `candidates.json` with provenance. A
+`SessionStart`/`SessionEnd` hook (`src/hooks/session-detect.mjs`) triggers it, source-filtered to
+startup/resume. Thresholds are a frozen, overridable table — starting guesses, calibrated only
+against real data. The calibration pass over the live 93-event/4-session log yielded zero candidates;
+the dominant patterns failed Gate 2 (2 sessions) and the rest Gate 1, which is the correct outcome on
+thin cross-session data. Refactored shared hook I/O (`src/hooks/io.mjs`) and the JSONL reader
+(`src/state/log.mjs`) out of duplication. 10 engine tests + 5 cold-runner tests added; full suite of
+38 passes, lint and format clean.
+
+**Decision — "detection subagent" is deterministic code, not an LLM.** The spec's build order says
+"detection subagent," which tempts a model call. I deliberately did not. A non-deterministic
+classifier would map the same log to different rules across runs, fragmenting the counts every gate
+depends on and destroying the inspectability that is the project's core promise (PRAXIS.md §6, §12).
+"Subagent" here means a cold-path component, not a model. Flagging this rather than quietly building
+an LLM judge is the spec protecting the project from a plausible-sounding wrong turn.
