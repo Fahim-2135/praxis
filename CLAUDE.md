@@ -238,3 +238,13 @@ the repo **more professional**, and the documentation **more current** than befo
   read from readline's async iterator for batched-input correctness, treating EOF as a graceful quit.
   Generalized the cold runner's filter from rejected-only to `readDecided` (rejected ∪ active) so no
   decided pattern is ever re-proposed. 13 review tests + 1 cold-run case; full suite 54, lint/format clean.
+- *2026-06-08* — Stage 4 (feedback injection) built. Added the feedback path: a `SessionStart` hook
+  (`src/hooks/session-feedback.mjs`) over a pure renderer (`src/feedback/context.mjs`, a new `src/feedback/`
+  home) that reads `active-rules.md`, parses it via `parseActiveRules`, and prints a tier-aware imperative
+  directive to stdout — the one hook channel Claude Code injects into model context. Conventions established:
+  the feedback hook is registered as a *second* `SessionStart` hook alongside detection (Claude Code
+  concatenates both hooks' stdout), and feedback is deliberately *not* source-filtered (read-only + idempotent;
+  re-injects on `compact` so rules survive context compaction) — a reasoned divergence from the detection
+  hook, whose startup/resume filter (PRAXIS.md §12) guards the expensive detection step, not read-only output.
+  The hook re-renders rules from parsed data rather than dumping the human-facing file verbatim. 10 feedback
+  tests (pure render + spawned hook); full suite 64, lint/format clean.

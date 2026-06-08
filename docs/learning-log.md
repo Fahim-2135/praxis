@@ -181,3 +181,59 @@ politely. Lesson: handle input arriving in a batch, not only one keystroke at a 
 never-again list — and the engine respects both. Stage 4 is the step that finally *uses* the rulebook:
 when a session starts, Praxis reads `active-rules.md` out loud into the assistant's context, so it
 actually follows the habits I approved. That closes the whole loop.
+
+---
+
+## Stage 4 — Feedback injection (closing the loop)
+
+**What we built, in one line.** The part that makes the rulebook *matter*. When a session starts, Praxis
+reads my approved rules into the assistant's context — so it actually offers the habits I approved.
+
+**The plain version.** Up to now the rulebook just sat there. Stage 1 watched, Stage 2 made a shortlist,
+Stage 3 let me approve — but the assistant never *saw* the approved rules. Stage 4 is the wire that
+connects them: a small script that runs the moment a session begins, opens the rulebook, and reads it
+aloud into the room where the assistant is listening. Now the assistant knows "after tests, offer to
+push — but ask first" and brings it up on its own. Nothing runs behind my back; the rules are just
+*spoken into context* so the assistant can act on them.
+
+**The one idea I want to remember: one specific channel is the megaphone.** A hook is just an outside
+program, and normally whatever it prints goes nowhere. But there's *one* exception: what the
+session-start hook prints gets handed straight to the assistant as part of what it reads. That single
+property is the entire feedback mechanism. I don't need fancy automation — I just need to write my rules
+to *that one channel*, and the assistant picks them up. The honesty of this is the point: I can read the
+exact words that steer it, instead of trusting hidden machinery.
+
+**The choice I want to remember: don't dump the file — re-write it for its reader.** The rulebook is
+written for *me* (plain English plus little hidden data tags). I could have just printed that whole file
+into context, but the assistant doesn't need my header or the hidden tags — that's noise. So instead I
+pull the rules back out and rebuild them as *instructions aimed at the assistant*: "When X happened,
+offer Y, and ask first." Same facts, but phrased for whoever's reading. The risk level decides the
+wording — safe rules get a light touch, riskier ones demand explicit confirmation, dangerous ones may
+only be *suggested* — so the safety promise rides along in the very sentence that steers the model.
+
+**The subtle decision: this hook breaks a rule the other one follows — on purpose.** The Stage 2
+detection hook is forbidden from running when the session is just *compacted* (squeezed to save room),
+because that would interrupt me mid-work. I deliberately did the *opposite* for feedback: it re-reads
+the rulebook on compaction too. Why? Because compacting can squeeze my rules right out of the
+assistant's memory — so re-stating them then is exactly what I want. The "don't run on compact" rule was
+only ever about the *thinking* step (detection); a cheap read-only reminder has no reason to obey it.
+Recognizing that a constraint applies to one path and not another — instead of cargo-culting it
+everywhere — is the senior move here.
+
+**The technical words (so the vocabulary lands too).**
+
+- **the feedback path** — the spec's name for the step that feeds approved rules back into the model, via
+  `SessionStart` stdout. The fourth of the four paths; the one that closes the loop.
+- **context injection** — putting text into what the model reads for a session. Here it's done by printing
+  to a hook's stdout that Claude Code forwards into context — *not* by training the model (it never learns).
+- **`SessionStart` stdout** — the specific channel that gets injected. Other hooks' stdout is discarded;
+  this one isn't, which is why the feedback path uses exactly this event.
+- **source-filtering** — checking *why* a session started (`startup` / `resume` / `clear` / `compact`) and
+  acting only on some. Detection filters; feedback intentionally does not.
+- **single-responsibility** — each script does one job: detection and feedback are two separate
+  `SessionStart` hooks rather than one hook with branching behavior, because their filtering needs differ.
+
+**Gate before Stage 5:** the loop is now closed end-to-end — I act, Praxis logs, detects, proposes, I
+approve, and the assistant reads my rule next session and offers it back. Stage 5 (self-pruning) is the
+last piece: a rule whose behavior I've stopped doing gets flagged for retirement, so the rulebook can't
+quietly accumulate stale habits forever.

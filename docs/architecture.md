@@ -363,7 +363,73 @@ proving already-approved patterns are not re-proposed. Full suite: 54 tests, lin
 
 ---
 
-## Stages 4–5
+## Stage 4 — Feedback injection (complete)
 
-Not yet built. See [`PRAXIS.md` §10](../PRAXIS.md) for the planned sequence. This document is
-extended as each stage lands.
+### What it does
+
+The **feedback path** (PRAXIS.md §1, §8) — the step that finally closes the loop. A `SessionStart`
+hook reads the approved rules from `active-rules.md`, renders them into an imperative directive, and
+prints it to **stdout**. `SessionStart` is the one lifecycle event whose stdout Claude Code injects
+into the model's context, so from session start the model knows the user's inferred rules and offers
+the matching action when its trigger occurs. Praxis still automates nothing: it writes rules into the
+context the model reads (the honest, inspectable "Option A", PRAXIS.md §8), rather than driving actions
+from a hook.
+
+### Components
+
+| Path | Responsibility |
+|------|----------------|
+| `src/feedback/context.mjs` | Pure `renderInjection(rules) -> string`. Builds the tier-aware directive block; returns `""` for no rules. No I/O. |
+| `src/hooks/session-feedback.mjs` | The SessionStart hook entry. Reads `active-rules.md`, parses it via `parseActiveRules`, prints the rendered block to stdout, swallows failures, exits 0. |
+| `.claude/settings.json` | Now registers `session-feedback.mjs` as a second `SessionStart` hook, alongside `session-detect.mjs`. |
+
+### Design decision: a dedicated injection renderer, not the raw file
+
+`active-rules.md` is a *human*-facing artifact that also carries machine-readable provenance markers
+(HTML comments). Dumping it verbatim into context would inject that parsing noise and a header written
+for a human reader. Instead the hook re-renders from the *parsed* rules into a block whose audience is
+the model: an imperative directive ("When `test_run` just happened, offer to run `git_push` next, and
+act only on explicit confirmation"). The tier governs the phrasing — safe asks for a soft confirmation,
+consequential for explicit confirmation every time, destructive may only be suggested (PRAXIS.md §7) —
+so the autonomy promise is restated in the very text that steers the model. The renderer is pure, so
+the injected wording is unit-tested without spawning a process.
+
+### Design decision: no source filter on feedback (unlike detection)
+
+The detection hook (Stage 2) filters `SessionStart` to `startup`/`resume` because running detection on
+`compact`/`clear` would interrupt active work — a non-negotiable (PRAXIS.md §12). That constraint is
+specifically about *detection*. Feedback injection is read-only, cheap, and idempotent, and re-injecting
+after a `compact` is **beneficial**: compaction can summarize the original injected rules out of context,
+so re-emitting them keeps the rules live mid-session. The feedback hook therefore runs on every
+`SessionStart` source. This is a reasoned divergence from the detection hook's behavior, not a violation
+of the filter rule — that rule guards detection, not output.
+
+> Why two hooks instead of teaching `session-detect.mjs` to also print: detection and feedback are
+> distinct paths in the spec table (one writes candidates, one reads approved rules) with *different*
+> source-filtering needs. Keeping them as two single-responsibility scripts is cleaner than one hook
+> with branching behavior, and Claude Code concatenates the stdout of all `SessionStart` hooks.
+
+### Defensive contract (shared with every Praxis hook)
+
+Like the hot- and cold-path hooks, the feedback hook never disturbs Claude Code: a missing or unreadable
+`active-rules.md` injects nothing, any failure is swallowed to `errors.log`, empty stdin is a silent
+no-op, and it always `exit(0)`s. A feedback problem can never block a session from starting.
+
+### State files (Stage 4)
+
+No new state files. Stage 4 only *reads* `active-rules.md` (written by Stage 3) and emits to stdout;
+it owns nothing on disk.
+
+### Tests
+
+`test/feedback.test.mjs` (10 tests): the pure renderer (empty-for-no-rules, trigger/action/pointer
+present, per-tier phrasing, multi-rule numbering) and the spawned hook as Claude Code runs it (injects
+seeded rules to stdout on `startup`, injects on `compact` too, injects nothing when `active-rules.md` is
+absent, silent no-op on empty stdin). Full suite: 64 tests, lint and format clean.
+
+---
+
+## Stage 5
+
+Not yet built (self-pruning — recency re-validation of active rules). See [`PRAXIS.md` §10](../PRAXIS.md)
+for the planned sequence. This document is extended as the stage lands.

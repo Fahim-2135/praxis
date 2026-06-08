@@ -17,6 +17,10 @@
           {
             "type": "command",
             "command": "node src/hooks/session-detect.mjs"
+          },
+          {
+            "type": "command",
+            "command": "node src/hooks/session-feedback.mjs"
           }
         ]
       }

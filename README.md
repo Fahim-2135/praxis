@@ -10,9 +10,9 @@ hard-blocked at the hook layer, never auto-run.
 The key distinction: Praxis is **not** a note tool you fill in. It *infers* the rules you
 never stated. You don't tell it "I always push after tests pass" — it notices.
 
-> **Status:** Stages 1–3 of 5 complete (the hot path, the detection engine, and the `praxis
-> review` approval loop). Feedback injection and self-pruning are built in later stages — see
-> [Build stages](#build-stages). This README grows with the build.
+> **Status:** Stages 1–4 of 5 complete (the hot path, the detection engine, the `praxis
+> review` approval loop, and feedback injection — the loop now closes). Self-pruning is the
+> final stage — see [Build stages](#build-stages). This README grows with the build.
 
 ---
 
@@ -65,11 +65,19 @@ Four paths, two of them hard-separated by a strict latency boundary.
                                                   │ injects at next start
                                                   ▼
                           ┌─────────────────────────────────────────────┐
-   SessionStart stdout    │  FEEDBACK PATH                               │
-   ───────────────────────▶  print active-rules.md into context         │
+   SessionStart stdout    │  FEEDBACK PATH  (SessionStart hook)          │
+   ───────────────────────▶  render active-rules.md -> stdout -> context │
                           │  the model now acts on approved rules.       │
                           └─────────────────────────────────────────────┘
 ```
+
+`SessionStart` stdout is the one hook channel Claude Code injects into model context — that
+property *is* the feedback mechanism. Praxis never automates your actions; it writes your
+approved rules into what the model reads, so the model *offers* them, honoring each tier's
+confirmation rule. This is the honest, inspectable choice over hook-driven automation: you can
+read exactly what steers the assistant. Detection and feedback are separate `SessionStart`
+hooks — detection filters to startup/resume (it must not run mid-work), but feedback is
+read-only and re-injects on `compact` too, so your rules survive context compaction.
 
 ### Why the hot/cold split exists
 
@@ -223,6 +231,11 @@ explicit confirmation.
 <!-- praxis:rule {"action":"git_push","preceding_event":"test_run","tier":"consequential",…} -->
 ```
 
+Once a rule is approved, **no further action is needed** — the `SessionStart` feedback hook (also
+in [`.claude/settings.json`](.claude/settings.json)) reads `active-rules.md` and injects your rules
+into the assistant's context at the start of every session, so it acts on them automatically. Edit
+or delete a rule in that file and the change takes effect next session; it is plain markdown by design.
+
 Run the tests (no install needed — the suite uses Node's built-in test runner):
 
 ```bash
@@ -272,7 +285,7 @@ Built strictly in order — each stage's real output is the next stage's tuning 
    Stage-1 log.
 3. **`praxis review` + write-back** ✅ — the approval loop: candidates → `active-rules.md` /
    `rejected.json`, with decided patterns never re-proposed.
-4. **Feedback hook** — SessionStart injects `active-rules.md`; the loop closes.
+4. **Feedback hook** ✅ — SessionStart injects `active-rules.md` into context; the loop closes.
 5. **Self-pruning** — recency re-validation retires stale rules.
 
 See [`PRAXIS.md`](PRAXIS.md) for the full specification and [`docs/architecture.md`](docs/architecture.md)

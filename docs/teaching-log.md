@@ -395,3 +395,53 @@ skipped/undecided ones remain (provenance preserved). This keeps a re-run of `pr
 genuinely-pending patterns even before the next cold pass regenerates the snapshot. The separation of
 `candidates.json` (proposals) from `active-rules.md` (approved) is the safety design from PRAXIS.md §3 —
 a pending proposal lives apart from anything that can act.
+
+---
+
+## Stage 4 — Feedback injection (2026-06-08)
+
+**Concept — context injection via `SessionStart` stdout:** A hook is an external process and normally its
+stdout is discarded. `SessionStart` is the exception: Claude Code injects that hook's stdout into the
+model's context for the session. That single property is the entire feedback mechanism — Praxis writes
+approved rules to *that* channel and the model reads them. This is the honest "Option A" (PRAXIS.md §8),
+chosen over a `PreToolUse` hook that force-runs commands: injection is inspectable (you can read the exact
+text that steers the model) and it fits the consequential tier's "offer + confirm" rather than silent
+automation. The model is never trained — only the context it reads changes.
+
+**Concept — re-rendering for the audience, not dumping the file:** `active-rules.md` is a human-facing
+artifact carrying machine-readable provenance markers. Injecting it verbatim would push parsing noise and
+a human-oriented header into context. The hook instead parses the rules back out (`parseActiveRules`) and
+re-renders them as an imperative directive aimed at the model. The tier drives the phrasing (soft confirm
+/ explicit confirm / suggest-only), so the autonomy guarantee (PRAXIS.md §7) is restated in the steering
+text itself. Keeping the renderer pure (`src/feedback/context.mjs`) makes the injected wording unit-testable
+without spawning a process — the same pure-core / I/O-shell split used in every prior stage.
+
+**Concept — a constraint that binds one path but not another:** The detection hook filters `SessionStart`
+to `startup`/`resume` because running detection on `compact`/`clear` interrupts active work — a
+non-negotiable (PRAXIS.md §12). The feedback hook deliberately does *not* filter: injection is read-only,
+cheap, and idempotent, and re-emitting on `compact` is beneficial because compaction can summarize the
+originally-injected rules out of context. The lesson is to read *why* a constraint exists before applying
+it everywhere: "don't run on compact" guards the expensive detection step, not a read-only reminder.
+Cargo-culting the filter onto feedback would have silently dropped rules after every compaction.
+
+**Plain — what I just did:** I built the final wire that makes the rulebook matter. When a session starts,
+a small script opens your approved rules and reads them aloud into the assistant's context, so it knows
+your habits ("after tests, offer to push — but ask first") and brings them up on its own. Nothing runs
+behind your back; the rules are spoken into the room where the assistant can hear them. It also re-reads
+them after a context compaction so they don't get forgotten mid-session.
+
+**Technical — how an engineer says it:** Implemented the feedback path as a `SessionStart` hook
+(`src/hooks/session-feedback.mjs`) over a pure renderer (`src/feedback/context.mjs`). The hook reads
+`active-rules.md`, parses the provenance markers via `parseActiveRules`, and writes a tier-aware imperative
+directive to stdout — the one hook channel Claude Code injects into model context. Unlike the detection
+hook it is intentionally not source-filtered (read-only + idempotent; re-injects on `compact` so rules
+survive context compaction). Registered as a second `SessionStart` hook alongside `session-detect.mjs`;
+Claude Code concatenates the stdout of both. Defensive like every Praxis hook: missing rulebook injects
+nothing, failures swallowed to `errors.log`, always `exit(0)`. Added `test/feedback.test.mjs` (10 tests:
+pure render + spawned hook). Full suite 64, lint and format clean.
+
+**Decision — two single-responsibility hooks, not one branching hook.** Detection and feedback are distinct
+paths in the spec table (one writes candidates, one reads approved rules) with *different* source-filtering
+needs. Rather than teach `session-detect.mjs` to also print, feedback is its own script. Cleaner
+single-responsibility, and the two compose naturally because Claude Code runs every `SessionStart` hook and
+joins their stdout.
