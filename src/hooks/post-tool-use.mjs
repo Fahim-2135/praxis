@@ -14,27 +14,7 @@
 import { readFileSync, appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolveProjectDir, paths } from "../state/paths.mjs";
 import { normalize } from "../normalize.mjs";
-
-/**
- * Read all of stdin to a string. PostToolUse delivers the event as JSON on stdin.
- * @returns {Promise<string>}
- */
-async function readStdin() {
-  const chunks = [];
-  for await (const chunk of process.stdin) chunks.push(chunk);
-  return Buffer.concat(chunks).toString("utf8");
-}
-
-/**
- * Strip a leading UTF-8 BOM (some shells prepend one when piping to a process's
- * stdin) and trim surrounding whitespace.
- * @param {string} text
- * @returns {string}
- */
-function clean(text) {
-  const withoutBom = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
-  return withoutBom.trim();
-}
+import { readStdin, clean, noteError } from "./io.mjs";
 
 /**
  * Append one normalized event record and advance the session marker.
@@ -66,20 +46,6 @@ function record(event) {
 
   appendFileSync(p.log, JSON.stringify(line) + "\n");
   writeFileSync(markerPath, norm.action); // next event reads this as `preceding_event`
-}
-
-/**
- * Best-effort failure note. Never throws.
- * @param {unknown} err
- */
-function noteError(err) {
-  try {
-    const p = paths(process.env.CLAUDE_PROJECT_DIR || process.cwd());
-    mkdirSync(p.base, { recursive: true });
-    appendFileSync(p.errors, `${new Date().toISOString()} ${err?.stack ?? err}\n`);
-  } catch {
-    /* if even error logging fails, stay silent — exit 0 regardless */
-  }
 }
 
 const raw = clean(await readStdin());
