@@ -37,8 +37,12 @@ export function paths(root) {
     base,
     /** `log.jsonl` — append-only raw event stream. */
     log: join(base, "log.jsonl"),
-    /** `last_processed` — detection read cursor (line count). */
+    /** `last_processed` — detection read cursor (count of analyzed records). */
     lastProcessed: join(base, "last_processed"),
+    /** `candidates.json` — patterns that cleared all gates, awaiting approval. */
+    candidates: join(base, "candidates.json"),
+    /** `rejected.json` — declined patterns (rejection memory; written from Stage 3). */
+    rejected: join(base, "rejected.json"),
     /** `sessions/` — per-session "preceding event" markers. */
     sessions: join(base, "sessions"),
     /** `errors.log` — best-effort hot-path failure notes. */

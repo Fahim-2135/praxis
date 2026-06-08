@@ -9,6 +9,7 @@
     "demo": "node scripts/demo.mjs",
     "bench": "node scripts/bench.mjs",
     "inspect": "node scripts/inspect-log.mjs",
+    "detect": "node scripts/detect.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
