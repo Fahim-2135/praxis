@@ -524,3 +524,65 @@ hot path logs  ->  cold path detects + re-validates  ->  human approves / retire
 Praxis observes behavior, proposes rules from cross-session repetition, lets the user admit and retire
 them, and injects the live set into context — never training the model, never acting on an irreversible
 step, and keeping every rule in a file the user can read. See [`PRAXIS.md`](../PRAXIS.md) for the spec.
+
+---
+
+## Safety gate — PreToolUse (complete)
+
+The reversibility tiers (PRAXIS.md §7) decide how a rule is *allowed* to behave; the safety gate is what
+makes the strongest tier's promise — irreversible actions never auto-execute — true at the **hook layer**
+rather than by convention. A `PreToolUse` hook runs before each Bash call and, if the command is
+irreversible, returns a permission decision that forces explicit human confirmation.
+
+### Components
+
+| Path | Responsibility |
+|------|----------------|
+| `src/safety.mjs` | Pure `inspectCommand(raw) -> { category, reason, segment } \| null`. A high-precision rule table over the *raw* command, split into shell segments so a buried link (`npm test && rm -rf dist`) is caught. No I/O, no model. |
+| `src/hooks/pre-tool-use.mjs` | The PreToolUse hook. On a Bash call it runs `inspectCommand`; a hit emits an `ask` permission decision to stdout. Fails open (allows + logs on error), always exits 0. |
+| `.claude/settings.json` | Registers the hook with matcher `Bash` (the destructive vector; v1 scope). |
+
+### Design decision: a separate recognizer, not the learning normalizer
+
+`normalize.mjs` deliberately collapses argument noise to count habits — `git push --force-with-lease`
+becomes `git_push`, `rm -rf x` becomes `unmatched`. That is precisely the wrong granularity for safety:
+the danger lives in the flags it discards, and the reversibility tier of `git_push` (consequential) says
+nothing about the `--force` that makes *this* push irreversible. So the gate has its own recognizer
+(`safety.mjs`) that matches the dangerous command on raw text. The two modules answer different questions —
+"what habit is this?" vs "is this irreversible?" — and must not share a classifier.
+
+Coverage is conservative and extensible, mirroring normalization (PRAXIS.md §5): it targets the spec's
+three categories (history rewrites, deletions, external sends) plus disk overwrites; an unrecognized
+command is allowed, and the list grows as real dangerous commands surface. Over-blocking erodes trust
+faster than the occasional gap, and because the decision is `ask`, a false positive costs one keystroke
+while a false negative costs an irreversible action — so the rules err slightly toward flagging.
+
+### Deviation from the spec: "ask" rather than exit-2 deny
+
+PRAXIS.md §7/§2 describe the irreversible block as "hard-blocked (exit code 2)". A blanket `deny` would
+also block the user's *own* deliberate destructive commands, and a `PreToolUse` hook cannot tell "a rule
+auto-fired this" from "the user asked for it." So the gate returns an **`ask`** decision instead: the
+guarantee the spec actually wants — *never auto-executes* — holds for every irreversible call (it cannot
+run without a human yes), while a deliberate action still goes through on confirmation. "Hard-blocked" is
+realized as "hard-gated." This was an explicit product decision (the alternative, deny-plus-escape-hatch,
+was rejected as more friction for the same guarantee).
+
+### Design decision: fail open, but logged
+
+Every Praxis hook follows "never disturb Claude Code." For a *safety* hook that creates a real tension:
+fail closed (deny on error) would turn one parse bug into a frozen terminal — itself a violation of the
+hot-path contract — while fail open risks a silent gap. The gate fails **open** (allows the call) to
+preserve usability, but records every failure to `errors.log`, so a malfunctioning gate is visible rather
+than silently absent. The residual risk is bounded: the recognizer is pure regex with no I/O, the most
+likely failure path (a malformed payload) is covered by a test, and the decision it would have made is
+only a confirmation prompt, not an action.
+
+### Tests
+
+`test/safety.test.mjs` (12 cases): each category flagged (force-push variants, `git reset --hard`, `rm`
+with `-r`/`-f`, `git clean -f`, disk destroyers, scp/rsync/curl sends), each safe counterpart *not*
+flagged (plain push, soft reset, single-file `rm`, dry-run clean, disk *read*, GET fetch, local copy),
+buried-in-a-chain detection, safe-chain non-detection, empty/nullish input, and the `\brm\b`-word-boundary
+guard. `test/pre-tool-use.test.mjs` (6 cases): the spawned hook returns `ask` for an irreversible command,
+allows safe commands silently, never gates non-Bash tools, no-ops on empty stdin, and fails open (allows +
+logs) on a malformed payload. Full suite: **97 tests**, lint and format clean.

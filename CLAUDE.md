@@ -266,3 +266,14 @@ the repo **more professional**, and the documentation **more current** than befo
   of twice. The `npm run detect` calibration CLI now prints the `staleDays` threshold and the stale-rule
   retirement flags. Added feedback-hook test parity (BOM tolerance, swallowed malformed payload, mixed-tier
   render). Full suite 79, lint/format clean.
+- *2026-06-09* — PreToolUse safety gate built (PRAXIS.md §7 in-scope item, not one of the five numbered
+  stages). Added a pure raw-command recognizer (`src/safety.mjs`, `inspectCommand`) and a `PreToolUse`
+  hook (`src/hooks/pre-tool-use.mjs`) registered with matcher `Bash`. Conventions/decisions: safety has
+  its OWN recognizer separate from `normalize.mjs` (the normalizer discards the very flags that make a
+  command dangerous, so it is the wrong granularity for safety); the gate returns an `ask` permission
+  decision rather than an exit-2 deny — a documented deviation from the spec's "hard-blocked", chosen so
+  the guarantee (never auto-executes) holds while a deliberate command still passes on confirmation
+  ("hard-gated"); the hook fails OPEN (allows + logs on error) to honor the never-disturb-Claude-Code
+  contract, since fail-closed would turn a guard bug into a frozen terminal; coverage is conservative and
+  extensible like normalization (unknown commands allowed). This closes the README's previously-claimed
+  but unbuilt safety guarantee. 12 safety + 6 hook tests; full suite 97, lint/format clean.

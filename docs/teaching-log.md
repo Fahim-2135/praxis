@@ -529,3 +529,47 @@ stale rule" behave exactly like "skip a suggestion" (both just mean "not now" an
 the system from reading the same rules file twice in one pass, taught the inspection command to show stale
 rules and the new staleness setting, and added a few more safety tests to the feedback hook so it is
 tested as thoroughly as the others. No features changed — it is the same system, tightened.
+
+---
+
+## Safety gate — PreToolUse block (2026-06-09)
+
+**Concept — the PreToolUse permission decision (allow/deny/ask):** Unlike PostToolUse (observe-after),
+a PreToolUse hook runs *before* a tool call and its output can change whether the call proceeds. It has
+three outcomes, not two: allow, deny, and **ask**, emitted as JSON (`permissionDecision`) on stdout, with
+exit code 2 as a blunt deny fallback. This is the mechanism that turns the destructive tier from prose
+into enforcement: the gate sits at the hook layer, below the rules, so even a buggy or malicious rule
+cannot auto-execute an irreversible command (PRAXIS.md §7, §12).
+
+**Concept — safety needs its own recognizer, opposite to the normalizer:** `normalize.mjs` exists to
+*discard* argument detail so habits count together (`git push --force-with-lease` -> `git_push`). The
+danger lives in exactly that discarded detail. A classifier designed to blur differences is the wrong
+tool for catching the one difference that matters, so the gate has a separate recognizer (`safety.mjs`)
+that matches the dangerous command on raw text. Two superficially-similar jobs ("classify this command")
+can require opposite designs — one blurs, one hunts.
+
+**Concept — fail open vs fail closed for a guard:** On internal error, should the gate block everything
+(closed) or allow everything (open)? Fail-closed would turn a guard bug into a frozen terminal — the
+guard becomes the outage, violating the hot-path "never disturb Claude Code" contract. The gate fails
+**open** but logs the failure, so a malfunctioning guard is visible rather than silently absent. Safe
+because the recognizer is pure regex, the worst missed output is a confirmation prompt (not an action),
+and the malformed-payload path is tested. The lesson: pick the failure mode from what the component does.
+
+**Decision — "ask" rather than exit-2 deny (a documented spec deviation):** The spec says "hard-blocked
+(exit code 2)", but a blanket deny would also block the user's own deliberate destructive commands, and a
+hook can't distinguish "a rule fired this" from "the user asked." Returning `ask` keeps the real
+guarantee (never auto-executes — needs a human yes) while staying usable. "Hard-blocked" realized as
+"hard-gated." The alternative (deny + escape hatch) was rejected as equal friction for the same guarantee.
+
+**Plain — what I did:** I built the seatbelt. Before any terminal command runs, a guard reads it; if it's
+irreversible — force-push, `rm -rf`, wiping a disk, sending data out — it makes the assistant stop and ask
+you first. The promise that "dangerous things never happen on their own" used to be just words in the
+rulebook; now it's a wall the rules sit behind, so even a bad rule can't get a destructive command past it.
+
+**Technical — how an engineer says it:** Added a `PreToolUse` hook (`src/hooks/pre-tool-use.mjs`) over a
+pure recognizer (`src/safety.mjs`). `inspectCommand(raw)` splits the command into shell segments and
+matches each against a conservative, high-precision table covering history rewrites (force-push),
+irreversible reset, deletions (`rm -r/-f`, `git clean -f`), disk overwrites (`dd of=/dev/`, `mkfs`,
+`shred`, `> /dev/...`), and external sends (`scp`/`rsync`/`sftp` to a remote, `curl`/`wget` uploads/POST);
+a hit yields an `ask` permission decision. Registered with matcher `Bash` (the v1 vector). Fails open with
+`errors.log` notes; always exits 0. 12 safety tests + 6 hook tests; full suite 97, lint and format clean.

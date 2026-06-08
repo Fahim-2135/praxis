@@ -295,3 +295,58 @@ detects and re-validates (cold path) → I approve or retire (human path) → th
 rules (feedback path). Praxis observes what I do, infers rules from real cross-session repetition, lets me
 admit and prune them, and feeds the current set back into context — without ever training the model, ever
 acting on an irreversible step, or ever hiding a rule from me.
+
+---
+
+## Safety gate — the PreToolUse block (the guarantee made real)
+
+**What we built, in one line.** The part that *physically* stops danger. Before any terminal command
+runs, a guard checks it; if it's irreversible (force-push, `rm -rf`, wiping a disk, sending data out), it
+makes the assistant stop and ask me first.
+
+**Why this even needed building.** The safety promise existed only as *words* until now. The rulebook
+said of risky rules "never run this automatically" — but that's just text the assistant reads and is
+*asked* to obey. If a rule were buggy, or the assistant slipped, nothing actually *stopped* the command.
+This stage turns the promise into a wall: a check that sits below the rules, at the moment a command is
+about to run, and refuses to let an irreversible one through without my explicit yes.
+
+**The one idea I want to remember: the safety check can't reuse the habit-labeler.** My first instinct
+was "I already have code that names commands (the normalizer) — reuse it." Wrong, and worth understanding
+why. The normalizer's whole *job* is to throw away detail: `git push --force-with-lease` and `git push`
+both become `git_push`, because for counting habits they're the same intent. But the danger lives in
+exactly the part it throws away — the `--force`. A labeler built to ignore differences is the worst tool
+for spotting the one difference that matters. So safety got its *own* recognizer that reads the raw
+command and looks for the dangerous flags directly. Lesson: two jobs that look similar ("classify this
+command") can need opposite designs — one blurs detail, the other hunts for it.
+
+**The second idea: 'block' has three settings, not two.** I assumed the guard could only *allow* or
+*deny*. But the pre-run hook has a third option: **ask**. That third option dissolved the whole problem.
+A flat "deny all force-pushes" would also block *me* when I genuinely need one. "Ask" means: never runs on
+its own, but I can wave it through in the moment. That's exactly the real goal — "never *auto*-executes" —
+without making the tool fight me. Reaching for the option I didn't know existed beat building a clumsy
+"deny + secret override" workaround.
+
+**The third idea: a safety guard should fail *open*, loudly.** If the guard itself crashes, what should
+happen — block everything, or allow everything? Blocking everything would freeze my terminal over a typo
+in the guard: the guard becomes the disaster. So it fails *open* (lets the command through) — but writes
+the failure down, so a broken guard is *visible*, not silently gone. The reasoning that makes this safe
+enough: the guard is tiny pure code, the worst it would've done is show a prompt (not take an action), and
+the likely failure is tested. Choosing fail-open here isn't carelessness — it's matching the failure mode
+to what the component actually does.
+
+**The technical words (so the vocabulary lands too).**
+
+- **PreToolUse hook** — a hook that runs *before* a tool call and can change whether it proceeds
+  (allow / deny / **ask**), unlike PostToolUse which only observes after the fact.
+- **permission decision** — the verdict the hook returns (here `ask`), emitted as JSON the harness reads.
+- **fail open / fail closed** — on error, default to *allowing* (open) vs *blocking* (closed). I chose
+  open + logging for this guard.
+- **hard-gated vs hard-blocked** — my deviation from the spec's word "blocked": the action isn't forbidden,
+  it's *gated* behind a mandatory human confirmation. Same guarantee (never auto-runs), still usable.
+- **defense in depth** — the danger is caught at the hook layer *below* the rules, so even a bad rule can't
+  get an irreversible command past it. The guarantee doesn't depend on the rules being correct.
+
+**Why this was last, and outside the five stages.** The five stages are the *learning loop*; this guard is
+a *seatbelt* around it. It depends on the tier idea from Stage 2 but nothing depends on it, so it was safe
+to build last — and honestly, it had to exist before I'd call the repo trustworthy, because the README was
+already promising it.

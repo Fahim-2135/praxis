@@ -80,6 +80,10 @@ read exactly what steers the assistant. Detection and feedback are separate `Ses
 hooks — detection filters to startup/resume (it must not run mid-work), but feedback is
 read-only and re-injects on `compact` too, so your rules survive context compaction.
 
+Orthogonal to these four learning paths is a **`PreToolUse` safety gate** that runs *before* each
+Bash call and forces confirmation on irreversible commands — see [Safety model](#safety-model). It is
+a guard, not part of the learning loop, so it sits outside the diagram.
+
 ### Why the hot/cold split exists
 
 The hot-path hook runs on **every single tool call**, so its latency is added to everything you
@@ -155,10 +159,17 @@ Reversibility decides autonomy. Three tiers, enforced at the hook layer — not 
 |------|----------|------------------|
 | **Safe / reversible** | run tests, format, `ls`, status | May eventually act with a soft confirm. |
 | **Consequential / recoverable** | `git commit`, `git push` | Acts **only** with explicit confirmation, every time. Never silent. |
-| **Destructive / irreversible** | force push, delete, external sends | **Never auto-executes.** Suggested only; hard-blocked at `PreToolUse`. |
+| **Destructive / irreversible** | force push, delete, external sends | **Never auto-executes** — a `PreToolUse` gate forces explicit confirmation before it can run. |
 
-The irreversible block is enforced by a `PreToolUse` hook that denies the call (exit code 2), so
-the guarantee holds even if a rule is buggy or malicious. An irreversible action never runs itself.
+The irreversible gate is enforced by a `PreToolUse` hook (`src/safety.mjs` + `src/hooks/pre-tool-use.mjs`)
+that returns an **`ask`** permission decision: Claude Code must get your explicit confirmation before the
+command runs. The guarantee holds even if a rule is buggy or malicious, because the gate sits at the hook
+layer, *below* the rules — an irreversible action can never auto-execute. It recognizes the dangerous
+command directly on its raw text (force-push, recursive/forced `rm`, disk overwrites, external sends),
+because the learning normalizer deliberately discards exactly the flags that make a command dangerous —
+so safety needs its own recognizer, not the habit labels. Coverage is conservative and extensible: an
+unrecognized command is allowed, and the rule list grows as real dangerous commands are observed. Because
+the decision is "ask" (one confirmation), erring toward flagging costs a keystroke, never an accident.
 
 ---
 
