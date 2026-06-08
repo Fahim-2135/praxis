@@ -237,3 +237,61 @@ everywhere — is the senior move here.
 approve, and the assistant reads my rule next session and offers it back. Stage 5 (self-pruning) is the
 last piece: a rule whose behavior I've stopped doing gets flagged for retirement, so the rulebook can't
 quietly accumulate stale habits forever.
+
+---
+
+## Stage 5 — Self-pruning (the rulebook can now shrink)
+
+**What we built, in one line.** The part that lets Praxis *forget*. It re-checks my approved rules and
+flags any habit I've stopped doing, so I can retire it — the rulebook shrinks, not just grows.
+
+**The plain version.** Until now every stage only *added*: log more, detect more, approve more. But a
+rulebook that only grows eventually fills with habits I've abandoned, and the assistant keeps offering
+me things I don't do anymore. Stage 5 fixes that. Each time Praxis analyzes my log, it also looks back at
+the rules I already approved and asks of each: "has this actually happened lately?" If a rule's habit
+hasn't shown up in two weeks, it gets flagged. Next time I run review, after the new suggestions it shows
+me the stale ones and asks "retire or keep?" Retire deletes it from the rulebook. So the rulebook stays a
+picture of what I do *now*, not a junk drawer of everything I ever did.
+
+**The one idea I want to remember: adding and removing should not use the same bar.** My instinct was to
+reuse the same "recent?" window for both — if 5 days proves a habit is current enough to *add*, why not
+use 5 days to decide it's gone? Because the two jobs aren't symmetric. *Adding* a rule should be hard: I
+want strong, current proof before automating something. *Removing* an approved rule should be forgiving:
+it already earned its place, so a quiet week or a vacation shouldn't yank it. So promotion uses a short
+window (5 days) and retirement uses a longer one (14 days). Same math, different thresholds, because the
+cost of a wrong "add" and a wrong "remove" are different. Picking the threshold from *what the mistake
+costs*, not from symmetry, is the lesson.
+
+**The second idea: the machine flags, but only I delete.** Praxis never edits the rulebook on its own —
+not even to remove dead rules. It only *flags*; the actual removal happens when I say "retire" in review,
+exactly the same way adding happens when I say "approve." This is the same trust rule as everywhere else
+in the project: a rule I can read is a rule I can trust, and nothing edits that file behind my back. The
+engine only ever *proposes* — in both directions, adding and removing.
+
+**A design subtlety I want to remember: don't break a property you already paid for.** Back in Stage 2 I
+made detection *idempotent* — if nothing new happened, running it again does nothing. Staleness is
+time-based (a rule goes stale because *time* passed, not because I did something), so I was tempted to
+make the staleness check run on *every* session even when there's no new activity — which would have
+broken that "do nothing if nothing's new" property. I chose to keep the property: staleness is recomputed
+on the next pass that *does* have new activity, which in practice is the very next time I work. A tiny
+delay in flagging a dead rule is a fair price for not breaking idempotency. Knowing which guarantee to
+protect when two desires collide is the senior move here.
+
+**The technical words (so the vocabulary lands too).**
+
+- **self-pruning** — the system removing its own stale rules so it doesn't accumulate dead weight forever.
+- **recency horizon** — the time window a rule's behavior must fall within to count as "still in use."
+  Promotion's horizon is `recencyDays` (5); retirement's is `staleDays` (14).
+- **re-validation** — re-running a check (here, recency) against data that already passed once, to see if
+  it *still* holds. Active rules are re-validated every cold pass.
+- **retire** — the review action that deletes an approved rule from `active-rules.md` (vs. *keep*, which
+  leaves it). The mirror image of *approve*.
+- **idempotency (again)** — the Stage 2 property I protected: a pass with no new events still does nothing.
+- **asymmetric thresholds** — using a different cutoff for adding vs. removing, because the two errors
+  cost differently.
+
+**Stage 5 done — the loop is complete.** All five stages are built: I act → Praxis logs (hot path) →
+detects and re-validates (cold path) → I approve or retire (human path) → the assistant reads the live
+rules (feedback path). Praxis observes what I do, infers rules from real cross-session repetition, lets me
+admit and prune them, and feeds the current set back into context — without ever training the model, ever
+acting on an irreversible step, or ever hiding a rule from me.

@@ -248,3 +248,15 @@ the repo **more professional**, and the documentation **more current** than befo
   hook, whose startup/resume filter (PRAXIS.md §12) guards the expensive detection step, not read-only output.
   The hook re-renders rules from parsed data rather than dumping the human-facing file verbatim. 10 feedback
   tests (pure render + spawned hook); full suite 64, lint/format clean.
+- *2026-06-09* — Stage 5 (self-pruning) built — the build is now complete (all five stages). Added recency
+  re-validation of active rules: `findStaleRules` (pure, in `src/detect.mjs`) is the inverse of Gate 4 with a
+  longer horizon (`staleDays: 14` added to `THRESHOLDS`); the cold runner persists a `retirements` array into
+  `candidates.json`; `runReview` gained a second injected phase (`decideRetirement`: retire/keep/quit) after
+  the candidate phase; `retireRule` (store.mjs) removes a rule from `active-rules.md`. Conventions/decisions
+  established: promotion and retirement use *asymmetric* thresholds (short window to admit, long window to
+  retire — chosen by the cost of each error, not symmetry); retirement is human-gated and symmetric with
+  promotion (the cold pass only flags; only `praxis review` edits the file — never silent auto-removal);
+  staleness is computed *inside* the normal gated cold pass so the Stage-2 idempotent-no-op property survives
+  (recomputed on the next pass-with-activity, not on idle sessions); the CLI shares one readline iterator
+  across both prompt phases and defaults an empty retirement answer to *keep*. +12 tests (4 detect, 1
+  cold-run, 7 review); full suite 76, lint/format clean.

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { detect, classifyReversibility, THRESHOLDS } from "../src/detect.mjs";
+import { detect, classifyReversibility, findStaleRules, THRESHOLDS } from "../src/detect.mjs";
 
 const NOW = "2026-06-08T12:00:00Z";
 
@@ -155,4 +155,56 @@ test("an unmatched action is never promoted, even if it clears every gate", () =
   assert.equal(candidates.length, 0);
   assert.equal(dropped[0].action, "unmatched");
   assert.equal(dropped[0].failedGate, "unactionable");
+});
+
+// --- self-pruning: findStaleRules ----------------------------------------------------
+
+test("findStaleRules flags an active rule unused beyond the horizon", () => {
+  const log = records({
+    action: "git_push",
+    preceding: "test_run",
+    sessions: ["a"],
+    timestamp: "2026-05-19T12:00:00Z", // 20 days before NOW
+  });
+  const stale = findStaleRules(log, [{ action: "git_push", preceding_event: "test_run" }], {
+    now: NOW,
+  });
+  assert.equal(stale.length, 1);
+  assert.equal(stale[0].lastSeen, "2026-05-19T12:00:00Z");
+  assert.equal(stale[0].daysSinceLastSeen, 20);
+  assert.equal(stale[0].tier, "consequential"); // classified when absent on the rule
+});
+
+test("findStaleRules keeps a rule still used within the horizon", () => {
+  const log = records({
+    action: "git_push",
+    preceding: "test_run",
+    sessions: ["a"],
+    timestamp: "2026-06-05T12:00:00Z", // 3 days before NOW
+  });
+  const stale = findStaleRules(log, [{ action: "git_push", preceding_event: "test_run" }], {
+    now: NOW,
+  });
+  assert.deepEqual(stale, []);
+});
+
+test("findStaleRules flags a rule whose behavior never appears in the log", () => {
+  const stale = findStaleRules([], [{ action: "git_push", preceding_event: "test_run" }], {
+    now: NOW,
+  });
+  assert.equal(stale.length, 1);
+  assert.equal(stale[0].lastSeen, null);
+  assert.equal(stale[0].daysSinceLastSeen, null);
+});
+
+test("findStaleRules honors a custom staleDays horizon", () => {
+  const log = records({
+    action: "test_run",
+    preceding: "file_edit",
+    sessions: ["a"],
+    timestamp: "2026-06-05T12:00:00Z", // 3 days before NOW
+  });
+  const rule = [{ action: "test_run", preceding_event: "file_edit" }];
+  assert.deepEqual(findStaleRules(log, rule, { now: NOW, staleDays: 14 }), []); // fresh at 14
+  assert.equal(findStaleRules(log, rule, { now: NOW, staleDays: 2 }).length, 1); // stale at 2
 });

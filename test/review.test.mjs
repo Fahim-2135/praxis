@@ -7,6 +7,7 @@ import {
   renderActiveRules,
   parseActiveRules,
   applyDecision,
+  retireRule,
   decidedIds,
 } from "../src/review/store.mjs";
 import { runReview, loadState } from "../src/review/run.mjs";
@@ -159,7 +160,14 @@ test("runReview persists approvals, rejections, and rewrites the pending pool", 
       out: () => {},
       now: NOW,
     });
-    assert.deepEqual(summary, { approved: 1, rejected: 1, skipped: 1, remaining: 1 });
+    assert.deepEqual(summary, {
+      approved: 1,
+      rejected: 1,
+      skipped: 1,
+      retired: 0,
+      kept: 0,
+      remaining: 1,
+    });
 
     // active-rules.md holds exactly the approved pattern.
     const active = parseActiveRules(readFileSync(p.activeRules, "utf8"));
@@ -247,7 +255,14 @@ test("runReview no-ops cleanly when there are no candidates", async () => {
       out: (l) => lines.push(l),
       now: NOW,
     });
-    assert.deepEqual(summary, { approved: 0, rejected: 0, skipped: 0, remaining: 0 });
+    assert.deepEqual(summary, {
+      approved: 0,
+      rejected: 0,
+      skipped: 0,
+      retired: 0,
+      kept: 0,
+      remaining: 0,
+    });
     assert.match(lines.join("\n"), /Nothing to review/);
     assert.ok(!existsSync(p.activeRules)); // nothing written when nothing decided
   } finally {
@@ -262,6 +277,178 @@ test("a rejected pattern is reloaded as rejection memory on the next session", a
     const reloaded = loadState(root);
     assert.equal(reloaded.rejected.length, 1);
     assert.ok(decidedIds(reloaded).has("git_push|test_run"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// --- self-pruning: retireRule (pure) -------------------------------------------------
+
+test("retireRule removes a rule by pattern id and leaves others", () => {
+  const active = [
+    { action: "git_push", preceding_event: "test_run", tier: "consequential" },
+    { action: "test_run", preceding_event: "file_edit", tier: "safe" },
+  ];
+  const next = retireRule(active, { action: "git_push", preceding_event: "test_run" });
+  assert.deepEqual(
+    next.map((r) => r.action),
+    ["test_run"],
+  );
+  assert.equal(active.length, 2); // original not mutated
+});
+
+test("retireRule is a no-op for a rule that is not active", () => {
+  const active = [{ action: "git_push", preceding_event: "test_run", tier: "consequential" }];
+  const next = retireRule(active, { action: "nope", preceding_event: "nope" });
+  assert.deepEqual(next, active);
+});
+
+// --- self-pruning: the retirement phase of runReview ---------------------------------
+
+function activeRule(over = {}) {
+  return {
+    action: "git_pull",
+    preceding_event: "session_start",
+    tier: "consequential",
+    approvedAt: NOW,
+    evidence: {},
+    ...over,
+  };
+}
+
+function staleFlag(over = {}) {
+  return {
+    action: "git_pull",
+    preceding_event: "session_start",
+    tier: "consequential",
+    lastSeen: null,
+    daysSinceLastSeen: null,
+    ...over,
+  };
+}
+
+/** A project seeded with active rules, a candidates.json (candidates + retirements). */
+function seedRetirement({ active = [], retirements = [], candidates = [] }) {
+  const root = mkdtempSync(join(tmpdir(), "praxis-retire-"));
+  const p = paths(root);
+  mkdirSync(p.base, { recursive: true });
+  writeFileSync(
+    p.candidates,
+    JSON.stringify({ generatedAt: NOW, candidates, retirements }, null, 2),
+  );
+  if (active.length) writeFileSync(p.activeRules, renderActiveRules(active));
+  return { root, p };
+}
+
+test("retire removes the stale rule from active-rules.md", async () => {
+  const { root, p } = seedRetirement({ active: [activeRule()], retirements: [staleFlag()] });
+  try {
+    const summary = await runReview(root, {
+      decide: scripted([]),
+      decideRetirement: scripted(["retire"]),
+      out: () => {},
+      now: NOW,
+    });
+    assert.equal(summary.retired, 1);
+    assert.deepEqual(parseActiveRules(readFileSync(p.activeRules, "utf8")), []);
+    const file = JSON.parse(readFileSync(p.candidates, "utf8"));
+    assert.deepEqual(file.retirements, []); // left the pending list
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("keep leaves the active rule in place but clears it from the pending list", async () => {
+  const { root, p } = seedRetirement({ active: [activeRule()], retirements: [staleFlag()] });
+  try {
+    const summary = await runReview(root, {
+      decide: scripted([]),
+      decideRetirement: scripted(["keep"]),
+      out: () => {},
+      now: NOW,
+    });
+    assert.equal(summary.kept, 1);
+    assert.equal(summary.retired, 0);
+    const active = parseActiveRules(readFileSync(p.activeRules, "utf8"));
+    assert.deepEqual(
+      active.map((r) => r.action),
+      ["git_pull"],
+    ); // still active
+    const file = JSON.parse(readFileSync(p.candidates, "utf8"));
+    assert.deepEqual(file.retirements, []); // reviewed, so cleared this session
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("one session reviews candidates then stale rules", async () => {
+  const { root, p } = seedRetirement({
+    active: [activeRule()],
+    retirements: [staleFlag()],
+    candidates: [candidate({ action: "git_push", preceding_event: "test_run" })],
+  });
+  try {
+    const summary = await runReview(root, {
+      decide: scripted(["approve"]),
+      decideRetirement: scripted(["retire"]),
+      out: () => {},
+      now: NOW,
+    });
+    assert.equal(summary.approved, 1);
+    assert.equal(summary.retired, 1);
+    // git_pull retired, git_push approved -> active-rules.md holds only git_push.
+    const active = parseActiveRules(readFileSync(p.activeRules, "utf8"));
+    assert.deepEqual(
+      active.map((r) => r.action),
+      ["git_push"],
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("quitting during candidates skips the retirement phase", async () => {
+  const { root, p } = seedRetirement({
+    active: [activeRule()],
+    retirements: [staleFlag()],
+    candidates: [candidate()],
+  });
+  try {
+    const summary = await runReview(root, {
+      decide: scripted(["quit"]),
+      decideRetirement: scripted(["retire"]),
+      out: () => {},
+      now: NOW,
+    });
+    assert.equal(summary.retired, 0); // phase never reached
+    const active = parseActiveRules(readFileSync(p.activeRules, "utf8"));
+    assert.deepEqual(
+      active.map((r) => r.action),
+      ["git_pull"],
+    ); // untouched
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a retirement-only session (no candidates) still prunes", async () => {
+  const { root, p } = seedRetirement({ active: [activeRule()], retirements: [staleFlag()] });
+  try {
+    const summary = await runReview(root, {
+      decide: scripted([]),
+      decideRetirement: scripted(["retire"]),
+      out: () => {},
+      now: NOW,
+    });
+    assert.deepEqual(summary, {
+      approved: 0,
+      rejected: 0,
+      skipped: 0,
+      retired: 1,
+      kept: 0,
+      remaining: 0,
+    });
+    assert.deepEqual(parseActiveRules(readFileSync(p.activeRules, "utf8")), []);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

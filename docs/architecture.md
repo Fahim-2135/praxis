@@ -429,7 +429,97 @@ absent, silent no-op on empty stdin). Full suite: 64 tests, lint and format clea
 
 ---
 
-## Stage 5
+## Stage 5 — Self-pruning (complete)
 
-Not yet built (self-pruning — recency re-validation of active rules). See [`PRAXIS.md` §10](../PRAXIS.md)
-for the planned sequence. This document is extended as the stage lands.
+### What it does
+
+The final stage: Praxis can now **retire** rules, not only add them (PRAXIS.md §8). During each cold
+pass the engine re-validates every active rule against a recency horizon; a rule whose behavior hasn't
+recurred within `staleDays` (14) is flagged for retirement and surfaced in the next `praxis review`,
+where the user retires it (removed from `active-rules.md`) or keeps it. A system that only accumulates
+rules decays — over time it steers the model with habits the user has dropped. Self-pruning closes that
+leak, keeping the rulebook a picture of *current* behavior.
+
+### Components
+
+| Path | Responsibility |
+|------|----------------|
+| `src/detect.mjs` | `findStaleRules(records, activeRules, opts)` — pure. The inverse of Gate 4 applied to active rules: returns the rules with no occurrence within `staleDays`, each with `lastSeen` / `daysSinceLastSeen`. Adds `staleDays: 14` to `THRESHOLDS`. |
+| `src/cold/run.mjs` | Computes `retirements` each pass (via `findStaleRules` over the parsed `active-rules.md`) and persists them into `candidates.json` alongside the candidates. |
+| `src/review/store.mjs` | `retireRule(active, rule)` — pure removal of a rule from the active set by pattern id. |
+| `src/review/run.mjs` | `runReview` gains a second phase: after candidates, walk the flagged stale rules via an injected `decideRetirement` callback (`retire` / `keep` / `quit`). `loadState`/`persist` now carry the `retirements` array; `formatRetirement` renders a stale-rule line. |
+| `bin/praxis.mjs` | A retirement prompt (`r/k/q`, empty defaults to *keep*), the `--list` view now shows flagged stale rules, and both prompt phases share one readline iterator. |
+
+### Design decision: a longer horizon for retirement than for promotion
+
+Gate 4 promotes on `recencyDays` (5) — a candidate must prove the habit is *current*. Retirement uses
+`staleDays` (14), deliberately longer. Promotion and pruning are asymmetric on purpose: it should take
+strong, current evidence to *add* a rule, but a rule already approved deserves the benefit of the doubt
+through a normal lull (a quiet week, a vacation) before being flagged. Using the same 5-day window for
+both would yank rules the moment you paused the habit; a longer pruning horizon retires only on genuine
+abandonment. Both remain calibration knobs in the one frozen `THRESHOLDS` table (PRAXIS.md §6, §12).
+
+### Design decision: retirement is human-gated, symmetric with promotion
+
+The cold pass only *flags* — it never edits `active-rules.md`. Removal happens solely through
+`praxis review`, exactly as admission does. Auto-retiring silently was rejected for the same reason
+Praxis never acts silently: a rule you can read is one you can trust, and the file is the user's to
+own. So the same human path that admits a rule is the one that removes it; the engine only ever
+proposes, in both directions.
+
+### How staleness is computed without breaking cursor idempotency
+
+`findStaleRules` runs inside the normal cold pass, so retirements are recomputed only when the pass
+actually runs — i.e. when new events have arrived since the `last_processed` cursor (Stage 2's
+idempotency gate). A pass with no new events stays a no-op; it does not rewrite `candidates.json`. In
+practice a rule goes stale because *time* passed, and by the next session there is essentially always
+new activity to trigger a fresh pass that re-evaluates staleness. The trade-off — staleness refreshes
+on the next pass-with-activity rather than on a purely idle session — preserves the idempotent-no-op
+property that makes the dual SessionStart/SessionEnd triggers safe.
+
+### `candidates.json` shape (Stage 5 addition)
+
+```json
+{
+  "generatedAt": "…",
+  "thresholds": { "…": "…", "staleDays": 14 },
+  "analyzed": { "events": 93, "sessions": 4 },
+  "candidates": [ "…" ],
+  "retirements": [
+    { "action": "git_pull", "preceding_event": "session_start",
+      "tier": "consequential", "lastSeen": null, "daysSinceLastSeen": null }
+  ]
+}
+```
+
+The review loop rewrites this file with both arrays trimmed to what is still pending; the next cold
+pass overwrites it wholesale.
+
+### State files (Stage 5)
+
+No new files. Stage 5 adds the `retirements` array to `candidates.json` and *removes* rules from
+`active-rules.md` on retirement; it owns no new on-disk artifact.
+
+### Tests
+
+`test/detect.test.mjs` gains 4 `findStaleRules` cases (flagged beyond horizon, kept within it, never-seen
+rule, custom horizon). `test/cold-run.test.mjs` gains 1 case (a stale rule is written to
+`candidates.json`). `test/review.test.mjs` gains 7 cases (`retireRule` purity; the retirement phase:
+retire, keep, combined candidate+retirement, quit-skips-phase, retirement-only). Full suite: **76 tests**,
+lint and format clean.
+
+---
+
+## The loop, closed
+
+With Stage 5 done, all four paths and the full lifecycle are in place:
+
+```
+hot path logs  ->  cold path detects + re-validates  ->  human approves / retires  ->  feedback injects
+        ▲                                                                                      │
+        └──────────────────────────  the model acts; behavior feeds back in  ◄────────────────┘
+```
+
+Praxis observes behavior, proposes rules from cross-session repetition, lets the user admit and retire
+them, and injects the live set into context — never training the model, never acting on an irreversible
+step, and keeping every rule in a file the user can read. See [`PRAXIS.md`](../PRAXIS.md) for the spec.

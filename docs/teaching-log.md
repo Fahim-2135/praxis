@@ -445,3 +445,56 @@ paths in the spec table (one writes candidates, one reads approved rules) with *
 needs. Rather than teach `session-detect.mjs` to also print, feedback is its own script. Cleaner
 single-responsibility, and the two compose naturally because Claude Code runs every `SessionStart` hook and
 joins their stdout.
+
+---
+
+## Stage 5 — Self-pruning (2026-06-09)
+
+**Concept — self-pruning via recency re-validation:** A rule store that only grows decays — over time it
+steers the model with abandoned habits. Self-pruning (PRAXIS.md §8) re-applies a recency check to the
+*active* rules each cold pass: a rule whose behavior hasn't recurred within `staleDays` is flagged for
+retirement. It is the inverse of Gate 4 (which gates *candidates* in) applied to keeping rules *alive*.
+The flag is surfaced in `praxis review`, where the user retires (removes from `active-rules.md`) or keeps
+it. Computed as pure arithmetic over the log (`findStaleRules`), like the gates — no model, no I/O.
+
+**Concept — asymmetric thresholds (promotion vs. retirement):** The instinct is to reuse Gate 4's
+`recencyDays` (5) to also decide a rule is dead. Wrong: admission and removal are not symmetric. Adding a
+rule should require strong, current proof (short window); removing an *already-approved* rule should
+tolerate a normal lull (longer window, 14 days) so a quiet week doesn't yank it. The threshold is chosen
+from the cost of each error — a wrong "add" vs. a wrong "remove" — not from symmetry. Both live in the one
+frozen `THRESHOLDS` table as calibration knobs.
+
+**Concept — protecting an existing invariant under a new requirement:** Staleness is time-driven (a rule
+goes stale because time passed), which tempts you to run the check on *every* SessionStart, even with no
+new log events. But that would break Stage 2's idempotent-no-op property (a pass with nothing new does
+nothing), which is what makes the dual SessionStart/SessionEnd triggers safe. The resolution: keep
+staleness inside the normal pass, so it recomputes on the next pass-with-activity rather than on a purely
+idle session. A small delay in flagging a dead rule is an acceptable price for not breaking idempotency.
+The skill is recognizing which guarantee to protect when two desiderata collide.
+
+**Concept — symmetric human-gating:** The cold pass only *flags* stale rules; it never edits
+`active-rules.md`. Removal happens exclusively through `praxis review`, exactly as admission does. Silent
+auto-retirement was rejected for the same reason Praxis never acts silently: an inspectable, user-owned
+rule file is the trust model. The engine proposes in both directions (add and remove); the human disposes.
+
+**Plain — what I just did:** I made Praxis able to forget. When it analyzes your log it now also re-checks
+the rules you already approved, and flags any whose habit hasn't happened in two weeks. Your next review
+shows those stale rules after the new suggestions and asks "retire or keep?" — retire deletes it. So the
+rulebook stays a picture of what you do now instead of growing forever.
+
+**Technical — how an engineer says it:** Added `findStaleRules(records, activeRules, { now, staleDays })`
+to `src/detect.mjs` (pure; inverse of Gate 4 with a 14-day horizon; returns lastSeen/daysSinceLastSeen)
+and `staleDays: 14` to `THRESHOLDS`. The cold runner computes `retirements` each pass over the parsed
+`active-rules.md` and persists them into `candidates.json`. `runReview` gained a second, injected phase
+(`decideRetirement`: retire/keep/quit) after the candidate phase; `retireRule` (in store.mjs) removes a
+pattern from the active set, rewriting `active-rules.md`; `loadState`/`persist` carry the `retirements`
+array; `formatRetirement` renders the stale-rule line. The CLI shares one readline async iterator across
+both prompt phases (two iterators over one readline would compete for input); the retirement prompt
+defaults an empty answer to *keep* so a stray Enter never deletes a rule. +12 tests (4 detect, 1 cold-run,
+7 review), full suite 76, lint and format clean.
+
+**Decision — retirement only runs when a cold pass runs (cursor idempotency preserved).** Rather than
+re-evaluate staleness on every SessionStart (which would break the Stage 2 no-op-when-nothing-new
+property), retirements are computed inside the normal gated pass. Staleness therefore refreshes on the
+next pass-with-activity, which in practice is the next working session — an acceptable trade for keeping
+the dual-trigger idempotency intact.

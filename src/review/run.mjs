@@ -6,7 +6,14 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { paths } from "../state/paths.mjs";
-import { parseActiveRules, renderActiveRules, renderRejected, applyDecision } from "./store.mjs";
+import { patternId } from "../detect.mjs";
+import {
+  parseActiveRules,
+  renderActiveRules,
+  renderRejected,
+  applyDecision,
+  retireRule,
+} from "./store.mjs";
 
 /**
  * Read and parse a JSON file; return `fallback` if it is missing or malformed. Strips a
@@ -42,6 +49,7 @@ function readRejected(path) {
  * @returns {{
  *   candidatesFile: object,        // the whole candidates.json (provenance preserved)
  *   candidates: object[],          // the pending candidate array
+ *   retirements: object[],         // active rules the cold pass flagged stale (PRAXIS.md §8)
  *   active: import("./store.mjs").Rule[],
  *   rejected: import("./store.mjs").Rejection[],
  * }}
@@ -52,6 +60,7 @@ export function loadState(root) {
   return {
     candidatesFile,
     candidates: Array.isArray(candidatesFile.candidates) ? candidatesFile.candidates : [],
+    retirements: Array.isArray(candidatesFile.retirements) ? candidatesFile.retirements : [],
     active: readActive(p.activeRules),
     rejected: readRejected(p.rejected),
   };
@@ -77,7 +86,11 @@ export function persist(root, state, which = {}) {
   if (candidates) {
     writeFileSync(
       p.candidates,
-      JSON.stringify({ ...state.candidatesFile, candidates: state.candidates }, null, 2) + "\n",
+      JSON.stringify(
+        { ...state.candidatesFile, candidates: state.candidates, retirements: state.retirements },
+        null,
+        2,
+      ) + "\n",
     );
   }
 }
@@ -97,51 +110,100 @@ export function formatCandidate(c) {
 }
 
 /**
- * Run one review session.
+ * Human-readable line for one stale active rule flagged for retirement (PRAXIS.md §8).
+ * @param {{ action: string, preceding_event: string, tier: string,
+ *   lastSeen: string | null, daysSinceLastSeen: number | null }} r
+ * @returns {string}
+ */
+export function formatRetirement(r) {
+  const seen =
+    r.lastSeen == null
+      ? "never seen since it was approved"
+      : `last seen ${r.lastSeen}` +
+        (r.daysSinceLastSeen != null ? ` (${r.daysSinceLastSeen}d ago)` : "");
+  return `[${r.tier}] ${r.action} after ${r.preceding_event}\n        stale — ${seen}`;
+}
+
+/**
+ * Run one review session: first the pending candidates (approve/reject/skip), then any active
+ * rules the cold pass flagged stale (retire/keep). Both decision sources are injected, so the
+ * interactive prompts (bin/praxis.mjs) and scripted tests share this exact loop.
  *
  * @param {string} root
  * @param {{
  *   decide: (candidate: object, index: number, total: number) =>
  *     Promise<"approve" | "reject" | "skip" | "quit"> | "approve" | "reject" | "skip" | "quit",
+ *   decideRetirement?: (rule: object, index: number, total: number) =>
+ *     Promise<"retire" | "keep" | "quit"> | "retire" | "keep" | "quit",
  *   out?: (line: string) => void,   // line sink (defaults to console.log)
  *   now?: string,                   // ISO timestamp to stamp decisions (defaults to now)
  * }} options
- * @returns {Promise<{ approved: number, rejected: number, skipped: number, remaining: number }>}
+ * @returns {Promise<{ approved: number, rejected: number, skipped: number,
+ *   retired: number, kept: number, remaining: number }>}
  */
-export async function runReview(root, { decide, out = console.log, now } = {}) {
+export async function runReview(root, { decide, decideRetirement, out = console.log, now } = {}) {
   const stamp = now ?? new Date().toISOString();
   let state = loadState(root);
 
-  if (state.candidates.length === 0) {
+  const hasCandidates = state.candidates.length > 0;
+  const hasRetirements = state.retirements.length > 0 && typeof decideRetirement === "function";
+
+  if (!hasCandidates && !hasRetirements) {
     out("No pending candidates. Nothing to review.");
     if (state.active.length) {
       out(`\n${state.active.length} active rule(s) in active-rules.md.`);
     }
-    return { approved: 0, rejected: 0, skipped: 0, remaining: 0 };
+    return { approved: 0, rejected: 0, skipped: 0, retired: 0, kept: 0, remaining: 0 };
   }
 
-  // Snapshot the queue up front: applyDecision rewrites state.candidates as we go, so we
-  // iterate over the original list rather than the shrinking one.
+  const tally = { approved: 0, rejected: 0, skipped: 0, retired: 0, kept: 0 };
+  let quit = false;
+
+  // Phase 1 — pending candidates. Snapshot the queue up front: applyDecision rewrites
+  // state.candidates as we go, so we iterate the original list, not the shrinking one.
   const queue = [...state.candidates];
-  const tally = { approved: 0, rejected: 0, skipped: 0 };
-
-  for (let i = 0; i < queue.length; i++) {
-    const candidate = queue[i];
-    const decision = await decide(candidate, i, queue.length);
-
-    if (decision === "quit") break;
-    state = applyDecision(state, candidate, decision, stamp);
-    if (decision === "approve") tally.approved++;
-    else if (decision === "reject") tally.rejected++;
-    else tally.skipped++;
+  for (let i = 0; i < queue.length && !quit; i++) {
+    const decision = await decide(queue[i], i, queue.length);
+    if (decision === "quit") quit = true;
+    else {
+      state = applyDecision(state, queue[i], decision, stamp);
+      if (decision === "approve") tally.approved++;
+      else if (decision === "reject") tally.rejected++;
+      else tally.skipped++;
+    }
   }
 
-  // Write only what changed. Approvals/rejections also shrink the pending pool, so either one
-  // means candidates.json must be rewritten; a skip-only (or immediate-quit) session changes
-  // nothing on disk and writes no files.
-  if (tally.approved > 0 || tally.rejected > 0) {
+  // Phase 2 — stale active rules flagged for retirement (PRAXIS.md §8). Whatever is decided
+  // here leaves the pending retirement list for this session; "keep" simply takes no further
+  // action (a still-stale rule is re-flagged by the next cold pass, by design).
+  if (hasRetirements && !quit) {
+    const stale = [...state.retirements];
+    for (let i = 0; i < stale.length; i++) {
+      const decision = await decideRetirement(stale[i], i, stale.length);
+      if (decision === "quit") break;
+      const id = patternId(stale[i].action, stale[i].preceding_event);
+      const retirements = state.retirements.filter(
+        (r) => patternId(r.action, r.preceding_event) !== id,
+      );
+      if (decision === "retire") {
+        state = { ...state, retirements, active: retireRule(state.active, stale[i]) };
+        tally.retired++;
+      } else {
+        state = { ...state, retirements };
+        tally.kept++;
+      }
+    }
+  }
+
+  // Write only what changed. Approvals add active rules; retirements remove them — either
+  // touches active-rules.md. Any candidate or retirement decision shrinks a pending list, so
+  // candidates.json (which carries both arrays) is rewritten. A skip/keep-only or
+  // immediate-quit session changes nothing on disk and writes no files.
+  const candidatesDecided = tally.approved + tally.rejected > 0;
+  const retirementsDecided = tally.retired + tally.kept > 0;
+  if (candidatesDecided || retirementsDecided) {
     persist(root, state, {
-      active: tally.approved > 0,
+      active: tally.approved > 0 || tally.retired > 0,
       rejected: tally.rejected > 0,
       candidates: true,
     });

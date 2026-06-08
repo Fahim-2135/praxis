@@ -10,7 +10,7 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { resolveProjectDir, paths } from "../src/state/paths.mjs";
-import { loadState, runReview, formatCandidate } from "../src/review/run.mjs";
+import { loadState, runReview, formatCandidate, formatRetirement } from "../src/review/run.mjs";
 
 const USAGE = `praxis — inspect and approve inferred workflow rules
 
@@ -19,9 +19,9 @@ Usage:
   praxis review --list     Show pending candidates and active rules (read-only).
   praxis help              Show this message.`;
 
-/** Print pending candidates and active rules without changing anything. */
+/** Print pending candidates, active rules, and stale rules without changing anything. */
 function list(root) {
-  const { candidates, active } = loadState(root);
+  const { candidates, active, retirements } = loadState(root);
 
   console.log(`Pending candidates (${candidates.length}):`);
   if (candidates.length === 0) console.log("  none");
@@ -30,27 +30,43 @@ function list(root) {
   console.log(`\nActive rules (${active.length}):`);
   if (active.length === 0) console.log("  none");
   else for (const r of active) console.log(`  [${r.tier}] ${r.action} after ${r.preceding_event}`);
+
+  console.log(`\nStale rules flagged for retirement (${retirements.length}):`);
+  if (retirements.length === 0) console.log("  none");
+  else for (const r of retirements) console.log("  " + formatRetirement(r));
 }
 
 /**
- * Build a readline-backed decision function: print the candidate, then read one of
- * a/r/s/q. Re-prompts on unrecognized input so a stray keystroke never decides a rule.
- *
- * Lines are pulled from readline's async iterator rather than sequential `rl.question`
- * calls: the iterator queues input, so lines that arrive batched (piped or pasted) between
- * prompts are not dropped, and end-of-input resolves cleanly instead of hanging. EOF is
- * treated as `quit` — graceful stop, persisting whatever was already decided.
+ * One line reader shared by both prompts. Lines are pulled from readline's async iterator
+ * rather than sequential `rl.question` calls: the iterator queues input, so lines that arrive
+ * batched (piped or pasted) between prompts are not dropped, and end-of-input resolves cleanly
+ * instead of hanging. A single iterator is shared across the candidate and retirement prompts
+ * so the second phase reads the same queue the first left off at (two iterators over one
+ * readline would compete for input). Returns `null` at EOF.
  * @param {import("node:readline/promises").Interface} rl
+ * @returns {() => Promise<string | null>}
  */
-function makeAsker(rl) {
+function makeLineReader(rl) {
   const lines = rl[Symbol.asyncIterator]();
+  return async () => {
+    const { value, done } = await lines.next();
+    return done ? null : value;
+  };
+}
+
+/**
+ * Candidate prompt: print the candidate, then read one of a/r/s/q. Re-prompts on unrecognized
+ * input so a stray keystroke never decides a rule; EOF is a graceful `quit`.
+ * @param {() => Promise<string | null>} readLine
+ */
+function makeAsker(readLine) {
   return async (candidate, index, total) => {
     console.log(`\n(${index + 1}/${total}) ${formatCandidate(candidate)}`);
     for (;;) {
       stdout.write("  approve / reject / skip / quit [a/r/s/q]? ");
-      const { value, done } = await lines.next();
-      if (done) return "quit"; // input ended — stop gracefully
-      const answer = value.trim().toLowerCase();
+      const line = await readLine();
+      if (line === null) return "quit"; // input ended — stop gracefully
+      const answer = line.trim().toLowerCase();
       if (answer === "a" || answer === "approve") return "approve";
       if (answer === "r" || answer === "reject") return "reject";
       if (answer === "s" || answer === "skip" || answer === "") return "skip";
@@ -60,16 +76,41 @@ function makeAsker(rl) {
   };
 }
 
+/**
+ * Retirement prompt for a stale active rule: retire (remove it) / keep / quit. The empty
+ * answer defaults to `keep` — a stray Enter must never delete a rule.
+ * @param {() => Promise<string | null>} readLine
+ */
+function makeRetirementAsker(readLine) {
+  return async (rule, index, total) => {
+    console.log(`\nStale rule (${index + 1}/${total}) ${formatRetirement(rule)}`);
+    for (;;) {
+      stdout.write("  retire / keep / quit [r/k/q]? ");
+      const line = await readLine();
+      if (line === null) return "quit";
+      const answer = line.trim().toLowerCase();
+      if (answer === "r" || answer === "retire") return "retire";
+      if (answer === "k" || answer === "keep" || answer === "") return "keep";
+      if (answer === "q" || answer === "quit") return "quit";
+      console.log("  Please answer r, k, or q.");
+    }
+  };
+}
+
 async function review(root) {
   const rl = createInterface({ input: stdin, output: stdout });
+  const readLine = makeLineReader(rl);
   try {
-    const summary = await runReview(root, { decide: makeAsker(rl) });
+    const summary = await runReview(root, {
+      decide: makeAsker(readLine),
+      decideRetirement: makeRetirementAsker(readLine),
+    });
     console.log(
       `\nDone — ${summary.approved} approved, ${summary.rejected} rejected, ` +
-        `${summary.skipped} skipped, ${summary.remaining} still pending.`,
+        `${summary.skipped} skipped, ${summary.retired} retired, ${summary.remaining} still pending.`,
     );
-    if (summary.approved > 0) {
-      console.log(`Approved rules written to ${paths(root).activeRules}.`);
+    if (summary.approved > 0 || summary.retired > 0) {
+      console.log(`Active rules updated in ${paths(root).activeRules}.`);
     }
   } finally {
     rl.close();

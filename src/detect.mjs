@@ -23,6 +23,7 @@ export const THRESHOLDS = Object.freeze({
   minSessions: 3, // Gate 2 — cross-session spread: across at least this many sessions
   minConsistency: 0.8, // Gate 3 — of all times the context occurred, action followed >= this
   recencyDays: 5, // Gate 4 — at least one occurrence within this many days
+  staleDays: 14, // Self-pruning — an active rule unused this long is flagged for retirement
 });
 
 /**
@@ -76,6 +77,57 @@ export function classifyReversibility(action) {
 /** Combine the two pattern fields into one map key. Action labels never contain `|`. */
 export function patternId(action, preceding) {
   return `${action}|${preceding}`;
+}
+
+/**
+ * Self-pruning: re-validate already-active rules against the recency horizon (PRAXIS.md §8).
+ *
+ * This is the inverse of Gate 4, applied to approved rules rather than candidates: a rule
+ * whose behavior has not occurred within `staleDays` is flagged for retirement, so a reviewer
+ * can prune it. A system that only ever adds rules accumulates dead weight and decays. A
+ * deliberately LONGER horizon than Gate 4's `recencyDays` is used — promotion needs proof the
+ * habit is current (5 days); retirement should tolerate a normal lull and fire only on genuine
+ * abandonment (14 days), so an approved rule is not yanked the first quiet week.
+ *
+ * Pure arithmetic over the log, like the gates: no I/O, no model. A rule never seen in the log
+ * (absent timestamp) is treated as stale — it has no evidence of recent use to keep it alive.
+ *
+ * @param {object[]} records                                   The full log.
+ * @param {Array<{ action: string, preceding_event: string, tier?: string }>} activeRules
+ * @param {{ now?: string | number | Date, staleDays?: number }} [options]
+ * @returns {Array<{ action: string, preceding_event: string,
+ *   tier: "safe" | "consequential" | "destructive",
+ *   lastSeen: string | null, daysSinceLastSeen: number | null }>}
+ */
+export function findStaleRules(records, activeRules = [], options = {}) {
+  const now = options.now ? new Date(options.now) : new Date();
+  const staleDays = options.staleDays ?? THRESHOLDS.staleDays;
+
+  // Most-recent timestamp per pattern, in one pass over the log.
+  const lastSeenById = new Map();
+  for (const r of records) {
+    if (!r.timestamp) continue;
+    const id = patternId(r.action, r.preceding_event ?? "session_start");
+    const prev = lastSeenById.get(id);
+    if (!prev || r.timestamp > prev) lastSeenById.set(id, r.timestamp);
+  }
+
+  const stale = [];
+  for (const rule of activeRules) {
+    const lastSeen = lastSeenById.get(patternId(rule.action, rule.preceding_event)) ?? null;
+    if (withinDays(lastSeen, now, staleDays)) continue; // still in use — keep
+    const daysSinceLastSeen = lastSeen
+      ? Math.floor((now.getTime() - Date.parse(lastSeen)) / 86_400_000)
+      : null;
+    stale.push({
+      action: rule.action,
+      preceding_event: rule.preceding_event,
+      tier: rule.tier ?? classifyReversibility(rule.action),
+      lastSeen,
+      daysSinceLastSeen,
+    });
+  }
+  return stale;
 }
 
 /** Round to two decimals for stable, human-readable evidence. */

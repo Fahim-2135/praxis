@@ -15,7 +15,7 @@
 import { writeFileSync, readFileSync } from "node:fs";
 import { paths } from "../state/paths.mjs";
 import { readLog } from "../state/log.mjs";
-import { detect, patternId } from "../detect.mjs";
+import { detect, patternId, findStaleRules } from "../detect.mjs";
 import { parseActiveRules } from "../review/store.mjs";
 
 /**
@@ -61,13 +61,27 @@ function readDecided(p) {
 }
 
 /**
+ * Read and parse the active rules, tolerating an absent file (returns []).
+ * @param {ReturnType<typeof paths>} p
+ * @returns {import("../review/store.mjs").Rule[]}
+ */
+function readActiveRules(p) {
+  try {
+    return parseActiveRules(readFileSync(p.activeRules, "utf8"));
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Run one cold-path detection pass.
  * @param {string} root  Project root.
  * @param {{ now?: string | number | Date, force?: boolean, dryRun?: boolean }} [options]
  *   - `force`  analyze even if no new events (calibration tooling).
  *   - `dryRun` compute but write nothing (calibration tooling).
  * @returns {{ ran: boolean, reason?: string, analyzed: { events: number, sessions?: number },
- *   thresholds?: object, candidates?: object[], dropped?: object[], cursor: number }}
+ *   thresholds?: object, candidates?: object[], retirements?: object[], dropped?: object[],
+ *   cursor: number }}
  */
 export function runDetection(root, options = {}) {
   const p = paths(root);
@@ -84,12 +98,18 @@ export function runDetection(root, options = {}) {
     (c) => !decided.has(patternId(c.action, c.preceding_event)),
   );
 
+  // Self-pruning (PRAXIS.md §8): re-validate the active rules' recency and flag the stale ones
+  // for retirement in the next `praxis review`. Computed in the same pass as candidates so one
+  // cold run both proposes new rules and surfaces dead ones.
+  const retirements = findStaleRules(records, readActiveRules(p), { now: options.now });
+
   if (!options.dryRun) {
     const output = {
       generatedAt: (options.now ? new Date(options.now) : new Date()).toISOString(),
       thresholds: result.thresholds,
       analyzed: result.analyzed,
       candidates,
+      retirements,
     };
     writeFileSync(p.candidates, JSON.stringify(output, null, 2) + "\n");
     writeFileSync(p.lastProcessed, `${records.length}\n`);
@@ -100,6 +120,7 @@ export function runDetection(root, options = {}) {
     analyzed: result.analyzed,
     thresholds: result.thresholds,
     candidates,
+    retirements,
     dropped: result.dropped,
     cursor: records.length,
   };

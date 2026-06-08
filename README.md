@@ -10,9 +10,9 @@ hard-blocked at the hook layer, never auto-run.
 The key distinction: Praxis is **not** a note tool you fill in. It *infers* the rules you
 never stated. You don't tell it "I always push after tests pass" — it notices.
 
-> **Status:** Stages 1–4 of 5 complete (the hot path, the detection engine, the `praxis
-> review` approval loop, and feedback injection — the loop now closes). Self-pruning is the
-> final stage — see [Build stages](#build-stages). This README grows with the build.
+> **Status:** Complete — all five stages built (the hot path, the detection engine, the `praxis
+> review` approval loop, feedback injection, and self-pruning). Praxis observes, infers, lets you
+> approve and retire rules, and injects the live set into context. See [Build stages](#build-stages).
 
 ---
 
@@ -130,6 +130,20 @@ four sessions of activity. The two highest-volume patterns — `file_edit` after
 propose nothing rather than manufacture a rule. Real candidates emerge only once a behavior actually
 recurs *across* sessions.
 
+### Self-pruning (the rulebook shrinks, not just grows)
+
+A rule store that only accumulates decays — it ends up steering the model with habits you've abandoned.
+So each cold pass also **re-validates the active rules**: a rule whose behavior hasn't recurred within a
+longer recency horizon (14 days) is flagged for retirement and surfaced in the next `praxis review`,
+where you retire or keep it. Two deliberate choices:
+
+- **Asymmetric thresholds.** Promotion requires *current* proof (5 days); retirement tolerates a normal
+  lull (14 days). Admission and removal aren't symmetric — it should be hard to add a rule and forgiving
+  to keep one — so the threshold is chosen from the cost of each error, not from symmetry.
+- **Human-gated, like promotion.** The engine only *flags*; removal happens solely through `praxis
+  review`. Praxis never edits the rule file silently — the same inspectability that governs admission
+  governs retirement. The engine proposes in both directions; you dispose.
+
 ---
 
 ## Safety model
@@ -156,7 +170,7 @@ personal behavioral data).
 |------|----------|
 | `log.jsonl` | Append-only raw event stream, one normalized event per line. |
 | `last_processed` | Read cursor (count of analyzed records) marking where the last detection pass ended. |
-| `candidates.json` | Patterns that cleared all gates, awaiting your approval. Affects nothing. |
+| `candidates.json` | Patterns that cleared all gates, awaiting your approval (plus active rules flagged stale for retirement). Affects nothing. |
 | `active-rules.md` | Approved rules **only** — the single human-readable file injected into context. |
 | `rejected.json` | Declined patterns, so they are never re-proposed. |
 
@@ -211,7 +225,9 @@ npm run detect
 
 Review the proposed candidates and decide which become rules. Each is shown with its tier and
 evidence; approve (`a`) writes it to `active-rules.md`, reject (`r`) remembers it in `rejected.json`
-so it's never proposed again, skip (`s`) leaves it pending, quit (`q`) stops:
+so it's never proposed again, skip (`s`) leaves it pending, quit (`q`) stops. After the candidates,
+the same review surfaces any **active rules flagged stale for retirement** (a habit you've stopped
+doing) — retire (`r`) removes the rule from `active-rules.md`, keep (`k`) leaves it:
 
 ```bash
 npm run review                      # interactive approval loop
@@ -286,7 +302,7 @@ Built strictly in order — each stage's real output is the next stage's tuning 
 3. **`praxis review` + write-back** ✅ — the approval loop: candidates → `active-rules.md` /
    `rejected.json`, with decided patterns never re-proposed.
 4. **Feedback hook** ✅ — SessionStart injects `active-rules.md` into context; the loop closes.
-5. **Self-pruning** — recency re-validation retires stale rules.
+5. **Self-pruning** ✅ — recency re-validation flags stale active rules for retirement in review.
 
 See [`PRAXIS.md`](PRAXIS.md) for the full specification and [`docs/architecture.md`](docs/architecture.md)
 for the system as actually built.

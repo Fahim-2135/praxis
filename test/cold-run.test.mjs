@@ -120,3 +120,26 @@ test("force + dryRun analyzes but writes nothing", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("the cold pass flags a stale active rule for retirement", () => {
+  const { root, p } = seedProject(passingPattern());
+  try {
+    // An active rule whose behavior (git_pull after session_start) never appears in the log.
+    writeFileSync(
+      p.activeRules,
+      '# Active\n<!-- praxis:rule {"action":"git_pull","preceding_event":"session_start","tier":"consequential"} -->\n',
+    );
+    const result = runDetection(root, { now: NOW });
+    assert.equal(result.ran, true);
+    assert.equal(result.retirements.length, 1);
+    assert.equal(result.retirements[0].action, "git_pull");
+    assert.equal(result.retirements[0].lastSeen, null); // never seen since approval
+
+    // Persisted alongside candidates so `praxis review` can surface it.
+    const file = JSON.parse(readFileSync(p.candidates, "utf8"));
+    assert.equal(file.retirements.length, 1);
+    assert.equal(file.retirements[0].action, "git_pull");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

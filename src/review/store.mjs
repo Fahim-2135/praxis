@@ -150,6 +150,20 @@ export function decidedIds({ active = [], rejected = [] }) {
 }
 
 /**
+ * Remove a rule from the active set by pattern id — the "retire" action of self-pruning
+ * (PRAXIS.md §8, §9). Returns a NEW array (no mutation); a rule not present is a harmless
+ * no-op. Retirement is human-gated in `praxis review` exactly like approval is: the same
+ * human path that admits a rule is the one that removes it.
+ * @param {Rule[]} active
+ * @param {{ action: string, preceding_event: string }} rule
+ * @returns {Rule[]}
+ */
+export function retireRule(active, rule) {
+  const id = patternId(rule.action, rule.preceding_event);
+  return active.filter((r) => patternId(r.action, r.preceding_event) !== id);
+}
+
+/**
  * Apply one decision to the review state, returning a NEW state (no mutation). `approve`
  * moves the candidate into active rules; `reject` records it in rejection memory; `skip`
  * leaves it pending. A pattern already present in the target list is not duplicated.
