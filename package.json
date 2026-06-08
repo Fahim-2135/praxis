@@ -13,6 +13,7 @@
     "bench": "node scripts/bench.mjs",
     "inspect": "node scripts/inspect-log.mjs",
     "detect": "node scripts/detect.mjs",
+    "status": "node bin/praxis.mjs status",
     "review": "node bin/praxis.mjs review",
     "lint": "eslint .",
     "format": "prettier --write .",

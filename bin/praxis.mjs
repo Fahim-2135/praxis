@@ -10,14 +10,72 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { resolveProjectDir, paths } from "../src/state/paths.mjs";
+import { readLog } from "../src/state/log.mjs";
+import { buildStatus } from "../src/status/status.mjs";
 import { loadState, runReview, formatCandidate, formatRetirement } from "../src/review/run.mjs";
 
 const USAGE = `praxis — inspect and approve inferred workflow rules
 
 Usage:
+  praxis status            Show what Praxis has learned about your workflow.
   praxis review            Review pending candidates one at a time.
   praxis review --list     Show pending candidates and active rules (read-only).
   praxis help              Show this message.`;
+
+/** Render the day/range descriptor for the observed window. */
+function observedLine(o) {
+  if (o.events === 0) return "Nothing observed yet.";
+  const span = o.spanDays <= 1 ? "today" : `over ${o.spanDays} days`;
+  const last = o.lastSeen ? `, last ${o.lastSeen.slice(0, 10)}` : "";
+  return `Observed ${o.events} events across ${o.sessions} session(s) ${span}${last}.`;
+}
+
+/**
+ * Print the workflow profile: what Praxis has learned, what it acts on, what it wants to act on,
+ * and what it is still watching. Read-only — the single command that makes the system visible.
+ */
+function status(root) {
+  const p = paths(root);
+  const { records } = readLog(p.log);
+  const { candidates, active, retirements } = loadState(root);
+  const s = buildStatus(records, { candidates, active, retirements });
+
+  console.log("Praxis — what I've learned about your workflow\n");
+
+  if (s.observed.events === 0) {
+    console.log("Nothing observed yet. Use Claude Code with the hook active, then check back.");
+    return;
+  }
+  console.log(observedLine(s.observed));
+
+  console.log("\nYour top habits:");
+  for (const h of s.topHabits) console.log(`  ${String(h.count).padStart(5)}  ${h.action}`);
+
+  console.log(`\nActive rules — I act on these for you (${s.activeRules.length}):`);
+  if (s.activeRules.length === 0) console.log("  none yet");
+  else
+    for (const r of s.activeRules)
+      console.log(`  [${r.tier}] ${r.action} after ${r.preceding_event}`);
+
+  console.log(`\nProposed — awaiting your review (${s.candidates.length}):`);
+  if (s.candidates.length === 0) console.log("  none — run `praxis review` when there are");
+  else {
+    for (const c of s.candidates) console.log("  " + formatCandidate(c));
+    console.log("  → run `praxis review` to approve or reject");
+  }
+
+  console.log(`\nAlmost rules — habits I'm watching (${s.almostRules.length}):`);
+  if (s.almostRules.length === 0) console.log("  none close yet");
+  else
+    for (const a of s.almostRules)
+      console.log(`  ${a.action} after ${a.preceding_event}\n      ${a.gap}`);
+
+  if (s.retirements.length) {
+    console.log(`\nStale — up for retirement (${s.retirements.length}):  run \`praxis review\``);
+    for (const r of s.retirements)
+      console.log(`  [${r.tier}] ${r.action} after ${r.preceding_event}`);
+  }
+}
 
 /** Print pending candidates, active rules, and stale rules without changing anything. */
 function list(root) {
@@ -122,6 +180,9 @@ async function main() {
   const root = resolveProjectDir();
 
   switch (command) {
+    case "status":
+      status(root);
+      break;
     case "review":
       if (rest.includes("--list")) list(root);
       else await review(root);

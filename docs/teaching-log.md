@@ -573,3 +573,37 @@ irreversible reset, deletions (`rm -r/-f`, `git clean -f`), disk overwrites (`dd
 `shred`, `> /dev/...`), and external sends (`scp`/`rsync`/`sftp` to a remote, `curl`/`wget` uploads/POST);
 a hit yields an `ask` permission decision. Registered with matcher `Bash` (the v1 vector). Fails open with
 `errors.log` notes; always exits 0. 12 safety tests + 6 hook tests; full suite 97, lint and format clean.
+
+---
+
+## praxis status — the workflow profile (2026-06-09)
+
+**Concept — a view/synthesis layer over engines, not new logic:** `praxis status` computes nothing new. It
+folds existing pure cores — `summarize` (counts, observed window) and `detect` (candidates + near-misses)
+— plus the review state into one human profile. Building it as a thin layer over the engines (rather than
+re-deriving counts) guarantees the profile can never disagree with the detector it reports on. Same
+pure-core-under-thin-CLI shape as every other feature: `buildStatus(records, state, opts)` is pure and
+unit-tested without a terminal; `bin/praxis.mjs` only renders.
+
+**Concept — visibility as a feature:** A correct pipeline that surfaces nothing is experienced as nothing.
+The highest-leverage remaining work was not more detection cleverness but a *window* onto the cleverness
+already present. Surfacing state turns a silent background process into a tool a user checks (the
+nice-to-have → should-have jump) and makes the system legible to anyone evaluating the codebase. For a
+portfolio piece especially, the screenshot is the pitch.
+
+**Concept — surface the 'almost', ranked:** The active rules are the outcome; the near-misses ('almost
+rules') are the evidence the system is alive and watching. `status` reuses the engine's `dropped` output
+(each with the gate it failed at), filters to genuine almost-habits (excludes lone one-offs), ranks by
+gates-cleared (recency miss = nearest, frequency miss = furthest), and prints the exact remaining gap per
+pattern. Closeness ranking is a presentation decision; the underlying verdicts stay the engine's.
+
+**Plain — what I did:** I gave Praxis a face. One command now shows, in plain words, everything it has
+learned about how you work — how much it's watched, your top habits, the rules it runs for you, the ones
+waiting on your approval, and the habits it's almost ready to suggest with exactly what's still missing.
+The machinery was all there; this is the screen that lets you (and anyone reading the repo) see it.
+
+**Technical — how an engineer says it:** Added `src/status/status.mjs` (`buildStatus`, pure) that composes
+`summarize` and `detect` with the loaded review state into a `StatusModel` — observed window (events,
+sessions, day span), top habits (`unmatched` excluded), active rules, pending candidates, stale flags, and
+ranked near-misses with per-pattern gap strings. Rendered by a new `status` subcommand in `bin/praxis.mjs`;
+`npm run status` added. 7 status tests; full suite 104, lint and format clean.

@@ -350,3 +350,39 @@ to what the component actually does.
 a *seatbelt* around it. It depends on the tier idea from Stage 2 but nothing depends on it, so it was safe
 to build last — and honestly, it had to exist before I'd call the repo trustworthy, because the README was
 already promising it.
+
+---
+
+## `praxis status` — making it visible (the should-have jump)
+
+**What we built, in one line.** The window. One command that tells me, in plain terms, everything Praxis
+has figured out about how I work — and what it's *almost* ready to automate.
+
+**The plain version.** Everything before this worked, but silently. To see what Praxis knew I'd have had
+to run three different developer tools and read raw numbers. `praxis status` is the one friendly screen:
+how much it's watched, my top habits, the rules it acts on, the ones waiting for my yes, and — the fun part
+— the "almost rules": habits it's *this close* to suggesting, with exactly what's missing ("seen 5× but in
+only 2 sessions — 1 more session to qualify").
+
+**The one idea I want to remember: a working pipeline isn't a product until someone can *see* it.** The
+hard engineering was already done. But a tool nobody can look into feels like nothing. The single highest-
+value thing left wasn't more cleverness underneath — it was a window onto the cleverness already there.
+Surfacing the state is what turns "a background process" into "a thing I open and enjoy," and it's what
+makes the work *legible* to anyone judging the repo. Visibility is a feature, often the most important one.
+
+**The second idea: show the 'almost', not just the done.** The active rules are the result; the *almost*
+rules are the proof it's alive and watching. Seeing "1 more session and I'll suggest this" is the moment
+the whole premise lands emotionally — it's watching me, and it's close. I got this for free by reusing the
+engine's existing near-miss output, so the profile can never lie about what the detector actually thinks.
+
+**The technical words (so the vocabulary lands too).**
+
+- **synthesis / view layer** — code whose job is to *present* existing state, not compute new state. It
+  reuses the engines (`summarize`, `detect`) instead of re-deriving, so it can't drift from them.
+- **read-only command** — changes nothing on disk; safe to run anytime. (Why it crosses no safety line.)
+- **near-miss surfacing** — exposing patterns that failed a gate but are close, ranked by how close.
+
+**Why this was the right last feature.** It cost little (pure core + a renderer over engines I already
+had), crossed no safety line (read-only), and did the most for the goal: it makes the invisible loop
+visible — for me day-to-day, and for anyone reading the repo deciding whether the person who built it can
+ship a *product*, not just a pipeline.

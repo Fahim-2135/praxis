@@ -586,3 +586,56 @@ buried-in-a-chain detection, safe-chain non-detection, empty/nullish input, and 
 guard. `test/pre-tool-use.test.mjs` (6 cases): the spawned hook returns `ask` for an irreversible command,
 allows safe commands silently, never gates non-Bash tools, no-ops on empty stdin, and fails open (allows +
 logs) on a malformed payload. Full suite: **97 tests**, lint and format clean.
+
+---
+
+## `praxis status` — the workflow profile (complete)
+
+Everything above is a pipeline; `praxis status` is the **window into it**. A single read-only command
+that synthesizes the log, the live rules, the pending candidates, the stale flags, and the engine's
+near-misses into one human "what I've learned about your workflow" view. It is the answer to "what does
+this thing actually *know* about me?" — and the artifact that makes the otherwise-invisible loop legible.
+
+### Why it matters (product, not plumbing)
+
+Before this, seeing the system's state meant running three disjoint developer tools (`inspect`, `detect`,
+`review --list`), none of which presented a *profile*. `praxis status` turns Praxis from a silent
+background process into something you *check* — and it carries standalone value before any rule is ever
+approved: it tells you things about your own workflow you didn't consciously know ("you push after tests
+86% of the time"). That self-knowledge is the jump from "nice to have" to "worth opening."
+
+### The "almost rules" idea
+
+The section that makes the system feel alive. It surfaces patterns the engine has seen but that have not
+yet cleared all five gates — ranked by how close they are — each with the exact remaining gap:
+
+```
+Almost rules — habits I'm watching (2):
+  git_push after test_run
+      seen 5× but in only 2 sessions — 1 more session to qualify
+  git_commit after file_edit
+      follows 68% of the time — needs 80%
+```
+
+This reuses the engine's own `dropped` output (the near-misses, with the gate each failed at), so the
+profile can never disagree with the detector. Closeness is ranked by gates-cleared (a recency miss cleared
+three gates and is nearest; a frequency miss cleared none and is furthest), and a lone one-off is excluded
+— only genuine almost-habits show.
+
+### Components
+
+| Path | Responsibility |
+|------|----------------|
+| `src/status/status.mjs` | Pure `buildStatus(records, state, opts) -> StatusModel`. Folds `summarize` (top habits, observed window) and `detect` (near-misses) plus the review state into one model. No I/O. |
+| `bin/praxis.mjs` | The `status` command: reads the log + review state, renders the model in sections. |
+| `package.json` | Adds the `status` bin subcommand and `npm run status`. |
+
+Like every feature it is a pure core under a thin renderer, reusing the existing engines rather than
+re-deriving anything — so `status` is correct by construction and unit-tested without a terminal.
+
+### Tests
+
+`test/status.test.mjs` (7 cases): empty-log zeroing, the observed window (counts / sessions / day span),
+top-habits ranking with `unmatched` excluded, a cross-session near-miss surfaced with its concrete gap, a
+near-frequency miss included while a lone one-off is excluded, closeness ranking (nearer misses first), and
+review-state passthrough. Full suite: **104 tests**, lint and format clean.

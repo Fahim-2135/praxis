@@ -277,3 +277,12 @@ the repo **more professional**, and the documentation **more current** than befo
   contract, since fail-closed would turn a guard bug into a frozen terminal; coverage is conservative and
   extensible like normalization (unknown commands allowed). This closes the README's previously-claimed
   but unbuilt safety guarantee. 12 safety + 6 hook tests; full suite 97, lint/format clean.
+- *2026-06-09* — `praxis status` built (post-spec product improvement; portfolio goal). A single read-only
+  command rendering a "what I've learned about your workflow" profile: observed window, top habits, active
+  rules, pending candidates, stale flags, and — the alive bit — "almost rules" (near-misses ranked by
+  gates-cleared, each with its concrete remaining gap). New pure core `src/status/status.mjs` (`buildStatus`)
+  reuses `summarize` + `detect` so the profile can never disagree with the engine; thin renderer in
+  `bin/praxis.mjs`; `npm run status` added. Convention reaffirmed: every user-facing feature is a pure core
+  under a thin CLI, reusing existing engines rather than re-deriving. Rationale: turns the invisible loop
+  into something a user checks (nice-to-have → should-have) and gives the repo a screenshot-worthy hero.
+  7 status tests; full suite 104, lint/format clean.
