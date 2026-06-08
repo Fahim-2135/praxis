@@ -34,7 +34,8 @@ console.log(
   `Thresholds: occurrences>=${result.thresholds.minOccurrences}, ` +
     `sessions>=${result.thresholds.minSessions}, ` +
     `consistency>=${result.thresholds.minConsistency}, ` +
-    `recency<=${result.thresholds.recencyDays}d`,
+    `recency<=${result.thresholds.recencyDays}d, ` +
+    `stale>${result.thresholds.staleDays}d`,
 );
 
 /** Format one pattern's evidence as a compact, aligned suffix. */
@@ -56,6 +57,19 @@ for (const d of result.dropped) {
   console.log(
     `  ${d.action} after ${d.preceding_event}  ✗ ${d.failedGate}  ${evidence(d.evidence)}`,
   );
+}
+
+// Self-pruning (PRAXIS.md §8): active rules whose behavior has gone stale and that the next
+// `praxis review` would offer to retire. Empty unless some rules have already been approved.
+const retirements = result.retirements ?? [];
+console.log(`\nStale active rules — flagged for retirement (${retirements.length}):`);
+if (retirements.length === 0) {
+  console.log("  none");
+} else {
+  for (const r of retirements) {
+    const last = r.lastSeen ? `last=${r.lastSeen} (${r.daysSinceLastSeen}d ago)` : "never seen";
+    console.log(`  [${r.tier}] ${r.action} after ${r.preceding_event}  ${last}`);
+  }
 }
 
 if (write) {

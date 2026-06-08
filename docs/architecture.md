@@ -422,10 +422,11 @@ it owns nothing on disk.
 
 ### Tests
 
-`test/feedback.test.mjs` (10 tests): the pure renderer (empty-for-no-rules, trigger/action/pointer
-present, per-tier phrasing, multi-rule numbering) and the spawned hook as Claude Code runs it (injects
-seeded rules to stdout on `startup`, injects on `compact` too, injects nothing when `active-rules.md` is
-absent, silent no-op on empty stdin). Full suite: 64 tests, lint and format clean.
+`test/feedback.test.mjs` (13 tests): the pure renderer (empty-for-no-rules, trigger/action/pointer
+present, per-tier phrasing, mixed-tier rendering, multi-rule numbering) and the spawned hook as Claude
+Code runs it (injects seeded rules to stdout on `startup`, injects on `compact` too, injects nothing when
+`active-rules.md` is absent, silent no-op on empty stdin, BOM tolerance, and a swallowed malformed payload
+noted to `errors.log`). Lint and format clean.
 
 ---
 
@@ -505,8 +506,8 @@ No new files. Stage 5 adds the `retirements` array to `candidates.json` and *rem
 `test/detect.test.mjs` gains 4 `findStaleRules` cases (flagged beyond horizon, kept within it, never-seen
 rule, custom horizon). `test/cold-run.test.mjs` gains 1 case (a stale rule is written to
 `candidates.json`). `test/review.test.mjs` gains 7 cases (`retireRule` purity; the retirement phase:
-retire, keep, combined candidate+retirement, quit-skips-phase, retirement-only). Full suite: **76 tests**,
-lint and format clean.
+retire, keep-as-non-decision, combined candidate+retirement, quit-skips-phase, retirement-only). Full
+suite: **79 tests**, lint and format clean.
 
 ---
 

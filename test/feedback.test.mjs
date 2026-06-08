@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -53,6 +53,16 @@ test("renderInjection numbers multiple rules", () => {
   ]);
   assert.match(text, /1\. /);
   assert.match(text, /2\. /);
+});
+
+test("renderInjection phrases each rule by its own tier when tiers are mixed", () => {
+  const text = renderInjection([
+    rule({ tier: "safe", action: "test_run", preceding_event: "file_edit" }),
+    rule({ tier: "destructive", action: "git_force_push", preceding_event: "test_run" }),
+  ]);
+  // Each rule keeps its own autonomy phrasing in one block.
+  assert.match(text, /`test_run` next — it is reversible/);
+  assert.match(text, /suggest `git_force_push` but must never run it automatically/);
 });
 
 // --- spawned hook (as Claude Code runs it) -------------------------------------------
@@ -116,5 +126,31 @@ test("hook on empty stdin is a silent no-op (exit 0, no output)", () => {
     assert.equal(r.stdout, "");
   } finally {
     rmSync(r.projectDir, { recursive: true, force: true });
+  }
+});
+
+test("hook tolerates a leading UTF-8 BOM on the payload (as PowerShell prepends)", () => {
+  const root = mkdtempSync(join(tmpdir(), "praxis-"));
+  try {
+    seedRules(root, [rule()]);
+    const bom = String.fromCharCode(0xfeff);
+    const r = runHook(bom + JSON.stringify({ source: "startup", cwd: root }), { root });
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /your approved workflow rules/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("hook swallows a malformed payload: no output, error noted, still exit 0", () => {
+  const root = mkdtempSync(join(tmpdir(), "praxis-"));
+  try {
+    seedRules(root, [rule()]);
+    const r = runHook("not json at all", { root });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, ""); // never injects on a parse failure
+    assert.ok(existsSync(join(root, ".praxis", "errors.log"))); // noted, not surfaced
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

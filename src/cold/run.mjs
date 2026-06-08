@@ -36,12 +36,14 @@ function readCursor(p) {
  * Pattern ids the user has already ruled on — both rejected and already-approved. A
  * detection pass must re-propose neither: a rejected pattern must never come back
  * (PRAXIS.md §9), and an approved one is already live in `active-rules.md`, so surfacing it
- * again as a "candidate" would be a confusing duplicate. Both files may be absent (nothing
- * decided yet); any read failure is treated as "nothing decided".
+ * again as a "candidate" would be a confusing duplicate. The active rules are passed in
+ * (read once per pass and reused for self-pruning too); the rejection file may be absent
+ * (nothing rejected yet), and a read failure is treated as "nothing rejected".
  * @param {ReturnType<typeof paths>} p
+ * @param {import("../review/store.mjs").Rule[]} activeRules
  * @returns {Set<string>}
  */
-function readDecided(p) {
+function readDecided(p, activeRules) {
   const ids = new Set();
   try {
     const data = JSON.parse(readFileSync(p.rejected, "utf8"));
@@ -50,13 +52,7 @@ function readDecided(p) {
   } catch {
     // no rejection memory yet
   }
-  try {
-    for (const r of parseActiveRules(readFileSync(p.activeRules, "utf8"))) {
-      ids.add(patternId(r.action, r.preceding_event));
-    }
-  } catch {
-    // no active rules yet
-  }
+  for (const r of activeRules) ids.add(patternId(r.action, r.preceding_event));
   return ids;
 }
 
@@ -92,8 +88,12 @@ export function runDetection(root, options = {}) {
     return { ran: false, reason: "no new events", analyzed: { events: records.length }, cursor };
   }
 
+  // Read the active rules once: they both filter already-approved candidates and feed the
+  // self-pruning recency check below.
+  const activeRules = readActiveRules(p);
+
   const result = detect(records, { now: options.now });
-  const decided = readDecided(p);
+  const decided = readDecided(p, activeRules);
   const candidates = result.candidates.filter(
     (c) => !decided.has(patternId(c.action, c.preceding_event)),
   );
@@ -101,7 +101,7 @@ export function runDetection(root, options = {}) {
   // Self-pruning (PRAXIS.md §8): re-validate the active rules' recency and flag the stale ones
   // for retirement in the next `praxis review`. Computed in the same pass as candidates so one
   // cold run both proposes new rules and surfaces dead ones.
-  const retirements = findStaleRules(records, readActiveRules(p), { now: options.now });
+  const retirements = findStaleRules(records, activeRules, { now: options.now });
 
   if (!options.dryRun) {
     const output = {

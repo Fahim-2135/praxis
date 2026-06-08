@@ -260,3 +260,9 @@ the repo **more professional**, and the documentation **more current** than befo
   (recomputed on the next pass-with-activity, not on idle sessions); the CLI shares one readline iterator
   across both prompt phases and defaults an empty retirement answer to *keep*. +12 tests (4 detect, 1
   cold-run, 7 review); full suite 76, lint/format clean.
+- *2026-06-09* — Stage 4/5 perfection pass (no behavior regressions). Made `keep` symmetric with `skip` —
+  both are non-decisions that write no files; only decisive actions (approve/reject/retire) persist. Cold
+  path now reads `active-rules.md` once per pass (shared by candidate-filtering and self-pruning) instead
+  of twice. The `npm run detect` calibration CLI now prints the `staleDays` threshold and the stale-rule
+  retirement flags. Added feedback-hook test parity (BOM tolerance, swallowed malformed payload, mixed-tier
+  render). Full suite 79, lint/format clean.

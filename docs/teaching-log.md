@@ -498,3 +498,34 @@ re-evaluate staleness on every SessionStart (which would break the Stage 2 no-op
 property), retirements are computed inside the normal gated pass. Staleness therefore refreshes on the
 next pass-with-activity, which in practice is the next working session — an acceptable trade for keeping
 the dual-trigger idempotency intact.
+
+---
+
+## Stage 4/5 — Perfection pass (2026-06-09)
+
+**Concept — make parallel actions behave the same (consistency as a design invariant):** The review
+loop has two phases with parallel option sets: candidates are approve/reject/**skip**, retirements are
+**retire**/keep. The first cut let `keep` strip the flag and rewrite `candidates.json`, while its true
+parallel — `skip` — wrote nothing. That split is a smell: two options that mean the same thing ("not
+now") behaving differently. The fix names a single invariant — *only decisive actions
+(approve/reject/retire) write to disk; non-decisions (skip/keep) touch nothing* — and makes `keep`
+obey it. A still-stale rule is simply re-flagged by the next cold pass, exactly as a skipped candidate
+stays pending. The lesson: when two code paths are conceptually parallel, divergent behavior is a bug
+even when each path "works" in isolation; pick the invariant and hold both to it.
+
+**Decision — read a file once per pass, not once per consumer.** The cold pass had two readers of
+`active-rules.md`: the candidate de-dup filter (`readDecided`) and the new self-pruning check
+(`findStaleRules`). Each opened and parsed the file independently. Folded to a single read whose result
+feeds both — fewer syscalls on the path that runs at every session boundary, and one obvious place the
+active rules enter the pass.
+
+**Decision — surface every new signal in the calibration tool.** `npm run detect` is the human's window
+into the engine; once the cold pass started producing retirement flags and a `staleDays` threshold, the
+CLI had to print them too, or a calibrator would be blind to half of what the pass now decides. A new
+output of the engine that the inspection tool ignores is an incomplete feature.
+
+**Plain — what I did:** I went back over the last two stages hunting for rough edges. I made "keep a
+stale rule" behave exactly like "skip a suggestion" (both just mean "not now" and change nothing), stopped
+the system from reading the same rules file twice in one pass, taught the inspection command to show stale
+rules and the new staleness setting, and added a few more safety tests to the feedback hook so it is
+tested as thoroughly as the others. No features changed — it is the same system, tightened.

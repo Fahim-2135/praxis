@@ -173,37 +173,41 @@ export async function runReview(root, { decide, decideRetirement, out = console.
     }
   }
 
-  // Phase 2 — stale active rules flagged for retirement (PRAXIS.md §8). Whatever is decided
-  // here leaves the pending retirement list for this session; "keep" simply takes no further
-  // action (a still-stale rule is re-flagged by the next cold pass, by design).
+  // Phase 2 — stale active rules flagged for retirement (PRAXIS.md §8). This mirrors the
+  // candidate phase exactly: `retire` is the decisive action (drop the rule from active-rules.md
+  // and from the pending flag list, like approve/reject drop a candidate), and `keep` is the
+  // non-decision (leave the rule flagged, like skip leaves a candidate pending — the next cold
+  // pass re-flags it if it is still stale).
   if (hasRetirements && !quit) {
     const stale = [...state.retirements];
     for (let i = 0; i < stale.length; i++) {
       const decision = await decideRetirement(stale[i], i, stale.length);
       if (decision === "quit") break;
-      const id = patternId(stale[i].action, stale[i].preceding_event);
-      const retirements = state.retirements.filter(
-        (r) => patternId(r.action, r.preceding_event) !== id,
-      );
       if (decision === "retire") {
-        state = { ...state, retirements, active: retireRule(state.active, stale[i]) };
+        const id = patternId(stale[i].action, stale[i].preceding_event);
+        state = {
+          ...state,
+          retirements: state.retirements.filter(
+            (r) => patternId(r.action, r.preceding_event) !== id,
+          ),
+          active: retireRule(state.active, stale[i]),
+        };
         tally.retired++;
       } else {
-        state = { ...state, retirements };
-        tally.kept++;
+        tally.kept++; // keep: a non-decision, like skip — nothing changes on disk
       }
     }
   }
 
-  // Write only what changed. Approvals add active rules; retirements remove them — either
-  // touches active-rules.md. Any candidate or retirement decision shrinks a pending list, so
-  // candidates.json (which carries both arrays) is rewritten. A skip/keep-only or
-  // immediate-quit session changes nothing on disk and writes no files.
+  // Write only what a decisive action changed. Approvals add active rules; retirements remove
+  // them — either touches active-rules.md. Approve/reject/retire each shrink a pending list, so
+  // candidates.json (which carries both the candidate and retirement arrays) is rewritten. A
+  // skip/keep-only or immediate-quit session is a pure no-decision and writes no files.
   const candidatesDecided = tally.approved + tally.rejected > 0;
-  const retirementsDecided = tally.retired + tally.kept > 0;
-  if (candidatesDecided || retirementsDecided) {
+  const anyRetired = tally.retired > 0;
+  if (candidatesDecided || anyRetired) {
     persist(root, state, {
-      active: tally.approved > 0 || tally.retired > 0,
+      active: tally.approved > 0 || anyRetired,
       rejected: tally.rejected > 0,
       candidates: true,
     });

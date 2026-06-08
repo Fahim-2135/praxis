@@ -358,9 +358,11 @@ test("retire removes the stale rule from active-rules.md", async () => {
   }
 });
 
-test("keep leaves the active rule in place but clears it from the pending list", async () => {
+test("keep is a non-decision (like skip): rule stays active and nothing is written", async () => {
   const { root, p } = seedRetirement({ active: [activeRule()], retirements: [staleFlag()] });
   try {
+    const candidatesBefore = readFileSync(p.candidates, "utf8");
+    const activeBefore = readFileSync(p.activeRules, "utf8");
     const summary = await runReview(root, {
       decide: scripted([]),
       decideRetirement: scripted(["keep"]),
@@ -369,13 +371,9 @@ test("keep leaves the active rule in place but clears it from the pending list",
     });
     assert.equal(summary.kept, 1);
     assert.equal(summary.retired, 0);
-    const active = parseActiveRules(readFileSync(p.activeRules, "utf8"));
-    assert.deepEqual(
-      active.map((r) => r.action),
-      ["git_pull"],
-    ); // still active
-    const file = JSON.parse(readFileSync(p.candidates, "utf8"));
-    assert.deepEqual(file.retirements, []); // reviewed, so cleared this session
+    // The rule is untouched and still flagged — keep writes no files, mirroring skip.
+    assert.equal(readFileSync(p.activeRules, "utf8"), activeBefore);
+    assert.equal(readFileSync(p.candidates, "utf8"), candidatesBefore);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -50,7 +50,8 @@ Four paths, two of them hard-separated by a strict latency boundary.
                                                   │ reads (only when new events exist)
                           ┌───────────────────────┴─────────────────────┐
    session start / end    │  COLD PATH  (SessionStart + SessionEnd)      │
-   ───────────────────────▶  run the 5 gates -> write candidates         │
+   ───────────────────────▶  run the 5 gates -> write candidates;        │
+                          │  re-validate active rules -> flag stale ones  │
                           │  may think; runs off the hot path.           │
                           └───────────────────────┬─────────────────────┘
                                                   │ proposes
