@@ -288,6 +288,10 @@ acts until a human says so here.
 - **`candidates.json`** — rewritten on exit with only the still-pending (skipped/undecided) patterns;
   the provenance fields are preserved. The next cold pass overwrites it wholesale anyway.
 
+Each file is written **only if that kind of decision was made**: an approval never spawns an empty
+`rejected.json`, a rejection never spawns an empty `active-rules.md`, and a skip-only (or immediate-quit)
+session writes nothing at all — mirroring the no-candidates path, which also touches no files.
+
 ### Design decision: one file that is both human-readable and machine-parseable
 
 **Problem.** `active-rules.md` must be *both* prose a human and the model read *and* a data source later

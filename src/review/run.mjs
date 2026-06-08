@@ -10,7 +10,7 @@ import { parseActiveRules, renderActiveRules, renderRejected, applyDecision } fr
 
 /**
  * Read and parse a JSON file; return `fallback` if it is missing or malformed. Strips a
- * leading UTF-8 BOM (``), which some editors and PowerShell prepend and which would
+ * leading UTF-8 BOM (U+FEFF), which some editors and PowerShell prepend and which would
  * otherwise make `JSON.parse` throw on an otherwise-valid file.
  */
 function readJson(path, fallback) {
@@ -58,21 +58,28 @@ export function loadState(root) {
 }
 
 /**
- * Write the review state back to disk. `active-rules.md` and `rejected.json` are rewritten
- * wholesale; `candidates.json` keeps its provenance fields but its `candidates` array is
- * replaced with whatever remains undecided (so a re-run shows only still-pending patterns,
- * and the next cold pass overwrites the snapshot anyway).
+ * Write the review state back to disk. Each file is written only if `which` selects it, so a
+ * session that touches only one kind of decision never creates the other files: an approval
+ * never spawns an empty `rejected.json`, a rejection never spawns an empty `active-rules.md`,
+ * and a skip-only session writes nothing at all. `active-rules.md` and `rejected.json` are
+ * rewritten wholesale; `candidates.json` keeps its provenance fields but its `candidates`
+ * array is replaced with whatever remains undecided.
  * @param {string} root
  * @param {{ candidatesFile: object, candidates: object[], active, rejected }} state
+ * @param {{ active?: boolean, rejected?: boolean, candidates?: boolean }} [which]
+ *   Which files to write. Defaults to all three.
  */
-export function persist(root, state) {
+export function persist(root, state, which = {}) {
+  const { active = true, rejected = true, candidates = true } = which;
   const p = paths(root);
-  writeFileSync(p.activeRules, renderActiveRules(state.active));
-  writeFileSync(p.rejected, renderRejected(state.rejected));
-  writeFileSync(
-    p.candidates,
-    JSON.stringify({ ...state.candidatesFile, candidates: state.candidates }, null, 2) + "\n",
-  );
+  if (active) writeFileSync(p.activeRules, renderActiveRules(state.active));
+  if (rejected) writeFileSync(p.rejected, renderRejected(state.rejected));
+  if (candidates) {
+    writeFileSync(
+      p.candidates,
+      JSON.stringify({ ...state.candidatesFile, candidates: state.candidates }, null, 2) + "\n",
+    );
+  }
 }
 
 /**
@@ -129,6 +136,15 @@ export async function runReview(root, { decide, out = console.log, now } = {}) {
     else tally.skipped++;
   }
 
-  persist(root, state);
+  // Write only what changed. Approvals/rejections also shrink the pending pool, so either one
+  // means candidates.json must be rewritten; a skip-only (or immediate-quit) session changes
+  // nothing on disk and writes no files.
+  if (tally.approved > 0 || tally.rejected > 0) {
+    persist(root, state, {
+      active: tally.approved > 0,
+      rejected: tally.rejected > 0,
+      candidates: true,
+    });
+  }
   return { ...tally, remaining: state.candidates.length };
 }

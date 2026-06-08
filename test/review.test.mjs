@@ -211,6 +211,33 @@ test("runReview stops at quit and persists only decisions made before it", async
   }
 });
 
+test("a skip-only session writes no files (no empty active-rules.md or rejected.json)", async () => {
+  const { root, p } = seedProject([candidate(), candidate({ action: "git_commit" })]);
+  try {
+    const summary = await runReview(root, {
+      decide: scripted(["skip", "skip"]),
+      out: () => {},
+      now: NOW,
+    });
+    assert.equal(summary.skipped, 2);
+    assert.ok(!existsSync(p.activeRules)); // nothing approved -> no rules file
+    assert.ok(!existsSync(p.rejected)); // nothing rejected -> no rejection file
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an approve-only session does not create an empty rejected.json", async () => {
+  const { root, p } = seedProject([candidate()]);
+  try {
+    await runReview(root, { decide: scripted(["approve"]), out: () => {}, now: NOW });
+    assert.ok(existsSync(p.activeRules)); // the approval
+    assert.ok(!existsSync(p.rejected)); // but no rejection happened
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("runReview no-ops cleanly when there are no candidates", async () => {
   const { root, p } = seedProject([]);
   try {
