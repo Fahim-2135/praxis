@@ -2,7 +2,7 @@
 
 **Your AI already watches you work. Praxis makes it _learn your habits_ — and act on them, with your permission, never behind your back.**
 
-![Node](https://img.shields.io/badge/node-%E2%89%A518-3c873a) ![dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen) ![tests](https://img.shields.io/badge/tests-104%20passing-brightgreen) ![license](https://img.shields.io/badge/license-MIT-blue)
+![Node](https://img.shields.io/badge/node-%E2%89%A520-3c873a) ![dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen) ![tests](https://img.shields.io/badge/tests-104%20passing-brightgreen) ![license](https://img.shields.io/badge/license-MIT-blue)
 
 Praxis is a behavioral-inference agent that layers over [Claude Code](https://claude.com/claude-code). It logs every tool call on a brutally minimal hot path, mines the stream for repeated `(action, context)` patterns, and — once a habit proves itself across sessions — proposes an automation you approve in one keystroke. The model is never trained. An inspectable rule file steers it, and irreversible actions are gated at the hook layer, never auto-run.
 
@@ -12,7 +12,7 @@ The distinction that matters: **Praxis is not a notes tool you fill in. It _infe
 
 ## See it
 
-One read-only command turns the whole invisible loop into a profile of how you actually work:
+One read-only command turns the whole invisible loop into a profile of how you actually work. _Example output — the numbers are illustrative, showing what the profile looks like once a few habits have cleared the gates:_
 
 ```text
 $ praxis status
@@ -194,10 +194,13 @@ Commands Praxis has no rule for yet are logged as `action: "unmatched"` with the
 
 ## Setup
 
-Requires **Node.js ≥ 18** — and nothing else. Zero runtime dependencies.
+Requires **Node.js ≥ 20** — and nothing else. Zero runtime dependencies.
 
-1. Clone into the project you want Praxis to observe (or use this repo directly).
-2. The hooks are registered in [`.claude/settings.json`](.claude/settings.json). Claude Code loads them at session start, so **restart your session** (or start a new one) to activate them.
+1. Clone this repo and open Claude Code **inside it**.
+2. The hooks are registered in [`.claude/settings.json`](.claude/settings.json) with paths relative to the repo root. Claude Code loads them at session start, so **restart your session** (or start a new one) to activate them.
+
+> **Current scope:** because the hooks are project-scoped, Praxis observes the Claude Code sessions you run in this repository. Observing every project from one install (registering the hooks in user-level settings with absolute paths) is not supported yet.
+
 3. Work normally. `.praxis/log.jsonl` fills with normalized events; at session boundaries the engine looks for habits.
 4. Run `npm run status` to see what it's learned, and `npm run review` to approve what it proposes.
 
@@ -212,7 +215,7 @@ npm run format
 npm test           # 104 tests, Node's built-in runner
 ```
 
-CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs lint, the formatter check, and the full suite on Node 18, 20, and 22 for every push and pull request.
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs lint, the formatter check, and the full suite on Node 20, 22, and 24 for every push and pull request.
 
 ---
 

@@ -6,7 +6,7 @@ Code; please read [`PRAXIS.md`](PRAXIS.md) (the spec) and [`docs/architecture.md
 
 ## Development setup
 
-Requires **Node.js ≥ 18**. The runtime has no dependencies; the only dev dependency is Prettier.
+Requires **Node.js ≥ 20**. The runtime has no dependencies; the only dev dependencies are ESLint and Prettier.
 
 ```bash
 npm install          # dev tooling (ESLint, Prettier)
@@ -19,7 +19,7 @@ npm run inspect      # summarize your real .praxis/log.jsonl
 npm run bench        # measure the hot path's per-invocation latency
 ```
 
-CI runs `lint`, `format:check`, and `test` on Node 18, 20, and 22 for every push and pull request.
+CI runs `lint`, `format:check`, and `test` on Node 20, 22, and 24 for every push and pull request.
 Keep them green. ESLint owns correctness; Prettier owns formatting — they do not overlap.
 
 Optionally enable the bundled pre-commit hook to run those same checks locally before each commit:
