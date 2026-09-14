@@ -2,7 +2,7 @@
 
 **Your AI already watches you work. Praxis makes it _learn your habits_ — and act on them, with your permission, never behind your back.**
 
-![Node](https://img.shields.io/badge/node-%E2%89%A520-3c873a) ![dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen) ![tests](https://img.shields.io/badge/tests-104%20passing-brightgreen) ![license](https://img.shields.io/badge/license-MIT-blue)
+[![CI](https://github.com/Fahim-2135/praxis/actions/workflows/ci.yml/badge.svg)](https://github.com/Fahim-2135/praxis/actions/workflows/ci.yml) ![Node](https://img.shields.io/badge/node-%E2%89%A520-3c873a) ![dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen) ![license](https://img.shields.io/badge/license-MIT-blue)
 
 Praxis is a behavioral-inference agent that layers over [Claude Code](https://claude.com/claude-code). It logs every tool call on a brutally minimal hot path, mines the stream for repeated `(action, context)` patterns, and — once a habit proves itself across sessions — proposes an automation you approve in one keystroke. The model is never trained. An inspectable rule file steers it, and irreversible actions are gated at the hook layer, never auto-run.
 

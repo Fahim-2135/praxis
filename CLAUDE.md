@@ -286,3 +286,9 @@ the repo **more professional**, and the documentation **more current** than befo
   under a thin CLI, reusing existing engines rather than re-deriving. Rationale: turns the invisible loop
   into something a user checks (nice-to-have → should-have) and gives the repo a screenshot-worthy hero.
   7 status tests; full suite 104, lint/format clean.
+- *2026-09-14* — Public release at github.com/Fahim-2135/praxis. Supported Node raised to ≥20 (Node 18 is
+  EOL and ESLint 10 no longer runs on it); CI matrix moved to Node 20/22/24 and CI actions to
+  `actions/checkout@v7` / `actions/setup-node@v7` (Node 24 action runtime). README: the `praxis status`
+  sample is labeled illustrative, setup states that hooks are project-scoped (they observe sessions run in
+  this repo), and the static tests badge was replaced by the live CI badge. Commit author emails use the
+  GitHub noreply address.
