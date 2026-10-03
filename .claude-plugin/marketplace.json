@@ -1,0 +1,17 @@
+{
+  "name": "praxis",
+  "owner": { "name": "Fahim", "url": "https://github.com/Fahim-2135" },
+  "metadata": {
+    "description": "Praxis: learns your Claude Code habits from the history you already have."
+  },
+  "plugins": [
+    {
+      "name": "praxis",
+      "source": "./",
+      "description": "Profiles how you work with Claude from your own session history, guards irreversible commands, and shows the habit it is closest to learning.",
+      "version": "0.2.0",
+      "category": "productivity",
+      "keywords": ["mod", "habits", "profile", "safety"]
+    }
+  ]
+}
