@@ -386,3 +386,32 @@ engine's existing near-miss output, so the profile can never lie about what the 
 had), crossed no safety line (read-only), and did the most for the goal: it makes the invisible loop
 visible — for me day-to-day, and for anyone reading the repo deciding whether the person who built it can
 ship a *product*, not just a pipeline.
+
+---
+
+## Praxis 2 — the mod (2026-10-04)
+
+**What happened, in plain words.** Claude Code shipped "mods": small add-ons that run *inside* Claude
+Code. Praxis had always watched from outside, one folder at a time, and had to log for days before it
+could say anything. Now it lives inside Claude Code, in every project, and instead of keeping its own
+diary it reads the history Claude Code already keeps. Install it, and seconds later it tells you what
+your last month says about you.
+
+**The one idea I want to remember: the data you need may already exist.** Praxis 1 spent its whole hot
+path collecting something Claude Code was writing down anyway. Reading the existing transcripts removed
+the cold start, the per-call cost, and the one-folder limit in one move.
+
+**The second idea: real data humbles the design.** On my own 80 sessions, the five gates found one rule,
+and it was useless (a self-repeat). I didn't lower the bar: a rule acts for me, so it stays strict.
+Instead the profile reports *facts* (archetype, rhythm, signature moves) and labels them as facts. Strict
+where it acts, generous where it only describes.
+
+**The technical words.**
+
+- **mod / function hook** — an in-process event handler (`on('tool.call', …)`) that can observe, rewrite,
+  or answer a Claude Code event, and draw UI through `ui.render`.
+- **incremental scan with byte offsets** — transcripts are append-only, so the scanner remembers how far
+  it read and parses only what was appended.
+- **compact encoding / string interning** — each event becomes a short array of numbers plus lookup
+  tables, to fit under the mod API's 4 MiB file limit.
+- **lift** — how much more often B follows A than B happens at all; the bar for a "signature move".

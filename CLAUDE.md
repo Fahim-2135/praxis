@@ -292,3 +292,15 @@ the repo **more professional**, and the documentation **more current** than befo
   sample is labeled illustrative, setup states that hooks are project-scoped (they observe sessions run in
   this repo), and the static tests badge was replaced by the live CI badge. Commit author emails use the
   GitHub noreply address.
+- *2026-10-04* — Praxis 2: rebuilt as a Claude Code mod (branch `praxis-2-mods`). The repo root is now
+  also a plugin (`.claude-plugin/plugin.json` + `marketplace.json`, `hooks/hooks.json` naming
+  `hooks/praxis.mjs`). Conventions established: `hooks/praxis.mjs` is the only file that touches the
+  mods API (`$`); everything it decides with lives in pure modules (`src/history/`, `src/profile/`) that
+  the Node suite tests, and the mod itself is tested in Claude Code's kit (`tests/mod/*.test.ts`,
+  `npm run test:mod`). `npm test` is now scoped to `test/**/*.test.mjs` so Node never picks up the kit's
+  `.test.ts` files. History comes from Claude Code's own transcripts, not a Praxis log; the scanner runs
+  as a child process because `$.fs.read` caps files at 4 MiB. The five gates are unchanged; the profile
+  reports facts and tendencies separately and never calls a self-repeat rule-ready. Normalizer coverage
+  extended (PowerShell, connectors, newer tools, everyday shell verbs, pipeline filters); history keeps
+  only an unrecognized command's verb. `.claude-plugin/types/` (written by Claude Code per version) is
+  git-ignored. See `docs/architecture.md` § Praxis 2.
