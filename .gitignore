@@ -18,3 +18,8 @@ Thumbs.db
 
 # Personal launch/marketing notes — not part of the public project.
 LAUNCH-PLAYBOOK.md
+
+# Type declarations Claude Code writes beside a mod on each load (version-specific).
+.claude-plugin/types/
+# ...and the tsconfig.json it adds at the mod root to extend them.
+tsconfig.json

@@ -1,14 +1,18 @@
 {
   "name": "praxis",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "A behavioral pattern-learning agent that layers over Claude Code — it observes your workflow, infers repeated action+context patterns, and proposes inspectable rules with human approval.",
+  "description": "Learns your Claude Code habits from the history you already have: a Claude Code mod that profiles how you work, guards irreversible commands, and proposes inspectable rules with human approval.",
   "type": "module",
   "bin": {
-    "praxis": "bin/praxis.mjs"
+    "praxis": "bin/praxis.mjs",
+    "praxis-history": "bin/praxis-history.mjs"
   },
   "scripts": {
-    "test": "node --test",
+    "test": "node scripts/run-tests.mjs",
+    "test:mod": "claude plugin test",
+    "validate": "claude plugin validate .",
+    "history": "node bin/praxis-history.mjs",
     "demo": "node scripts/demo.mjs",
     "bench": "node scripts/bench.mjs",
     "inspect": "node scripts/inspect-log.mjs",

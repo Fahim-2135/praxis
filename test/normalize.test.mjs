@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalize } from "../src/normalize.mjs";
+import { normalize, commandVerb } from "../src/normalize.mjs";
 
 test("collapses git push argument variants into one action", () => {
   assert.equal(
@@ -109,4 +109,51 @@ test("strips leading env-assignments and wrapper commands before matching", () =
   assert.equal(bash("FOO=bar BAZ=qux git commit -m x").action, "git_commit");
   assert.equal(bash("time npm test").action, "test_run");
   assert.equal(bash("env NODE_ENV=test sudo git pull").action, "git_pull");
+});
+
+test("PowerShell commands are classified like Bash", () => {
+  assert.equal(
+    normalize({ tool_name: "PowerShell", tool_input: { command: "git push" } }).action,
+    "git_push",
+  );
+  assert.equal(
+    normalize({ tool_name: "PowerShell", tool_input: { command: "Get-Content README.md" } }).action,
+    "file_read",
+  );
+});
+
+test("everyday shell work gets a label instead of falling into unmatched", () => {
+  assert.equal(bash("cat src/app.ts").action, "file_read");
+  assert.equal(bash("grep -rn TODO src").action, "file_search");
+  assert.equal(bash("node scripts/build-index.mjs").action, "script_run");
+  assert.equal(bash("node --test").action, "test_run");
+  assert.equal(bash("curl -s https://example.com").action, "web_fetch");
+  assert.equal(bash("mkdir -p out").action, "file_manage");
+  assert.equal(bash("gcc main.c -o main").action, "build_run");
+  assert.equal(bash("npm install").action, "install_run");
+});
+
+test("a pipeline filter never overrides the command it filters", () => {
+  assert.equal(bash("git log --oneline | head -5").action, "git_log");
+  assert.equal(bash("npm test 2>&1 | tail -20").action, "test_run");
+  assert.equal(bash("cd src && grep -n foo app.ts").action, "file_search");
+});
+
+test("newer tool names and connectors are labelled", () => {
+  assert.equal(normalize({ tool_name: "Agent" }).action, "subagent_run");
+  assert.equal(normalize({ tool_name: "AskUserQuestion" }).action, "ask_user");
+  assert.deepEqual(normalize({ tool_name: "mcp__github__create_issue" }), {
+    action: "mcp_call",
+    raw: "github",
+  });
+});
+
+test("commandVerb names a command by its last real verb, never its arguments", () => {
+  assert.equal(commandVerb('cd "/c/x" && docker compose up -d'), "docker");
+  assert.equal(
+    commandVerb('D="C:/secret/path"; cd "$D"; ./tools/deploy.sh --token abc'),
+    "deploy.sh",
+  );
+  assert.equal(commandVerb("cd somewhere"), "(setup only)");
+  assert.equal(commandVerb("FOO=1 sudo terraform apply"), "terraform");
 });

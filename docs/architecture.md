@@ -639,3 +639,96 @@ re-deriving anything — so `status` is correct by construction and unit-tested 
 top-habits ranking with `unmatched` excluded, a cross-session near-miss surfaced with its concrete gap, a
 near-frequency miss included while a lone one-off is excluded, closeness ranking (nearer misses first), and
 review-state passthrough. Full suite: **104 tests**, lint and format clean.
+
+---
+
+## Praxis 2: the mod (2026-10-04)
+
+Claude Code 2.1.287 opened **mods** to everyone on 2026-10-01: TypeScript or JavaScript event
+handlers, packaged in a plugin, that run inside Claude Code and can observe, rewrite, or answer
+its events and draw their own interface. Praxis 2 moves the product onto that surface. The engine
+(normalizer, five gates, status) is unchanged and shared; what changed is where the data comes from
+and where Praxis lives.
+
+### What changed, and why
+
+| Praxis 1 | Praxis 2 | Why |
+|----------|----------|-----|
+| A `PostToolUse` hook logs every call to `.praxis/log.jsonl` | Reads the transcripts Claude Code already writes to `~/.claude/projects/` | The history already exists. A new install shows a profile in seconds instead of needing days of logging, and nothing is added to each tool call. |
+| Project-scoped settings hooks (only sessions opened in this repo) | A mod installed once, active in every project | Fixes the open question from 2026-09-14: the first real detection pass produced 0 candidates because Praxis only saw its own repo. |
+| `praxis status` in a separate terminal | A `/praxis` pane, a share card, and one line above the prompt | Visibility inside the tool where the work happens. |
+| `PreToolUse` hook returns `ask` | `tool.call` hook holds the call and asks through `$.ui.ask` | Same recognizer (`src/safety.mjs`), now global; in a non-interactive run the answer is no. |
+
+### Data flow
+
+```
+~/.claude/projects/<project>/<session>.jsonl     (written by Claude Code)
+        │  bin/praxis-history.mjs  — run by the mod as a child process
+        │  src/history/scan.mjs    — incremental: parses only bytes appended since last scan
+        │  src/history/transcript.mjs — line -> tool/prompt events (pure)
+        ▼
+~/.claude/praxis/history.json                    (compact encoding, src/history/history.mjs)
+        │  read by the mod with $.fs.read
+        ▼
+src/profile/profile.mjs  buildProfile()  — reuses detect() and buildStatus()
+        │
+        ├─ /praxis pane, share card, band line   (hooks/praxis.mjs, src/profile/card.mjs)
+        └─ refreshed in the background after each turn (at most every 30 s)
+```
+
+**Why a child process.** A mod reads files through `$.fs.read`, capped at 4 MiB per file, and long
+sessions' transcripts run past 100 MB (the author's largest is 108 MB). The Node scanner streams
+files of any size and keeps a per-file byte offset, so the first scan of 223 MB took 1.4 s and each
+later scan about 60 ms. When Node is missing, the mod falls back to reading transcripts itself and
+skips files over the limit, saying so in the pane.
+
+**Why a compact encoding.** The mod reads the scanner's output under the same 4 MiB cap. Each call
+travels as a short array of numbers (seconds plus string-table indexes); `preceding_event` is not
+stored but re-derived from order on decode. About 33 bytes per call: roughly 120,000 calls fit.
+
+### Facts versus rules (a deliberate split)
+
+Calibrating on the author's real history (80 sessions, ~5,000 calls) produced **one** pattern that
+cleared all five gates, and it was a self-repeat ("connected-app call after connected-app call"),
+which would make a useless rule. Real agent work is less repetitive than the spec imagined. Two
+responses, kept separate on purpose:
+
+- **The gates did not move.** A rule acts on your behalf, so its bar stays at 80% consistency. The
+  profile additionally hides self-repeats from "rule-ready", and hides "almost" habits whose
+  consistency is under 50% or whose trigger is the session start, because those are not close to
+  anything.
+- **The profile reports facts and tendencies, labelled as such.** Archetype (the signal furthest past
+  its bar, quoting the person's own number), rhythm, projects, top actions, and **signature moves**:
+  pairs with support (≥5 times, ≥3 sessions) and lift (≥2× the action's base rate). These are things
+  that are true about the history; none of them acts.
+
+### Normalizer coverage (shared with Praxis 1)
+
+The first real scan labelled 43% of calls `unmatched`, mostly chained commands (`cd x && …`), the
+PowerShell tool, and newer tool names. Added: PowerShell classified like Bash; `Agent`,
+`AskUserQuestion`, `Skill`, task tools; `mcp__<server>__*` as `mcp_call` with the server as the raw
+signal; `cat`/`grep`/`node`/`curl`/`mkdir`/compilers/installs. Pipeline filters (`head`, `grep`…)
+are marked `filter` so they never override the command they trim (`git log | head` stays
+`git_log`). `unmatched` fell to 5%. History keeps only the verb of an unrecognized command
+(`commandVerb`), never its arguments.
+
+### Components
+
+| Path | Responsibility |
+|------|----------------|
+| `.claude-plugin/plugin.json`, `marketplace.json` | The repo root is the plugin; the marketplace lists it so `/plugin install praxis@praxis` works. |
+| `hooks/hooks.json`, `hooks/praxis.mjs` | The mod: session start, background refresh, `/praxis`, pane and band rendering, the safety hold. The only file that calls `$`. |
+| `src/history/transcript.mjs` | Pure transcript line parser. |
+| `src/history/history.mjs` | Pure: events to engine records; compact encode/decode. |
+| `src/history/scan.mjs`, `bin/praxis-history.mjs` | Incremental Node scanner and its CLI. |
+| `src/profile/profile.mjs` | Pure profile: totals, rhythm, archetype, moves, rule-ready, almost, facts. |
+| `src/profile/card.mjs` | Pure text: share card, band line, caption request. |
+
+### Tests
+
+Node suite: **145 tests** (new: transcript 7, history 7, profile 11, card 6, scan 5, normalizer 5).
+Mod suite, run in Claude Code's own kit with `claude plugin test`: **8 tests** — the first-reveal
+toast, `/praxis share`, the pane and its copy button, the reading state, the band line and
+`/praxis quiet`, and the safety hold (refused, approved, and ordinary commands untouched). Verified
+in real sessions on Claude Code 2.1.288: `/praxis share` printed the author's real card, and outside
+the repo (so Praxis 1's hook could not act) the mod alone held `rm -rf` and the directory survived.

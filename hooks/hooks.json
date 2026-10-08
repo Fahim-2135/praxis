@@ -1,0 +1,4 @@
+{
+  "description": "Praxis 2 — the Claude Code mod",
+  "modules": ["./praxis.mjs"]
+}
