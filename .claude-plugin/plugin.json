@@ -1,6 +1,6 @@
 {
   "name": "praxis",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Learns your Claude Code habits from the history you already have, shows them in a shareable profile, and turns the ones you approve into standing rules.",
   "author": { "name": "Fahim", "url": "https://github.com/Fahim-2135" },
   "homepage": "https://github.com/Fahim-2135/praxis",

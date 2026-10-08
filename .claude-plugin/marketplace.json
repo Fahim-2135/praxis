@@ -9,7 +9,7 @@
       "name": "praxis",
       "source": "./",
       "description": "Profiles how you work with Claude from your own session history, guards irreversible commands, and shows the habit it is closest to learning.",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "category": "productivity",
       "keywords": ["mod", "habits", "profile", "safety"]
     }

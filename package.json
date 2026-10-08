@@ -1,6 +1,6 @@
 {
   "name": "praxis",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Learns your Claude Code habits from the history you already have: a Claude Code mod that profiles how you work, guards irreversible commands, and proposes inspectable rules with human approval.",
   "type": "module",

@@ -23,7 +23,7 @@ Node.js ≥ 20 is recommended: Praxis uses it to read very long sessions. Withou
 
 | Command | What it does |
 |---------|--------------|
-| `/praxis` | Opens your profile. `c` copies a share card, `r` rescans. |
+| `/praxis` | Opens your profile. `c` copies a share card, `r` rescans, `1`-`9` make a rule-ready habit a rule. |
 | `/praxis share` | Copies the share card straight to your clipboard. |
 | `/praxis quiet` · `/praxis loud` | Hides or shows the one-line "watching" note above the prompt. |
 | `/praxis rescan` | Re-reads your history now (it also refreshes after each answer). |
@@ -49,7 +49,9 @@ My Claude Code habits, read by Praxis
 What's yours? github.com/Fahim-2135/praxis
 ```
 
-The `/praxis` pane adds what the card leaves out: your top projects, **signature moves** (what Claude does next far more often than chance), any **rule-ready habits** that cleared all five gates, the **almost habits** with exactly what each still needs, and a few facts — your most-touched file, your favourite connected app, how often you stop Claude mid-answer. While you work, one dim line above the prompt names the habit Praxis is closest to learning.
+The `/praxis` pane adds what the card leaves out: your top projects, **signature moves** (what Claude does next far more often than chance), any **rule-ready habits** that cleared all five gates (each with a **Make it a rule** button), the **almost habits** with exactly what each still needs, and a few facts — your most-touched file, your favourite connected app, how often you stop Claude mid-answer. While you work, one dim line above the prompt names the habit Praxis is closest to learning.
+
+**Make it a rule.** Press it on a rule-ready habit ("getting the latest code → running tests") and from then on Praxis does the next step for you: right after Claude gets the latest code, it runs the tests without being asked. What a rule may do follows the step's reversibility: safe steps (tests, formatting) happen by themselves, recoverable ones (commit, push) are asked about first, irreversible ones are only ever suggested. Your rules are listed under **YOUR RULES**, each with **Turn off**.
 
 ### What Praxis 2 reads, and what it never keeps
 
