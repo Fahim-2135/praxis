@@ -340,6 +340,34 @@ function drawPane(ui, width, actions) {
     );
   }
 
+  // Buttons sit near the top: an autofocused button below the fold scrolls the pane to the bottom
+  // on open, hiding the archetype.
+  children.push(
+    gap(),
+    Box({
+      flexDirection: "row",
+      columnGap: 3,
+      children: [
+        Button({
+          key: "copy",
+          label: "Copy share card",
+          hotkey: "c",
+          plain: true,
+          autoFocus: true,
+          onPress: actions.copyCard,
+        }),
+        Button({
+          key: "rescan",
+          label: "Rescan",
+          hotkey: "r",
+          plain: true,
+          onPress: actions.rescan,
+        }),
+        Text({ dimColor: true, children: ["Esc close"] }),
+      ],
+    }),
+  );
+
   const section = (title, items) => {
     if (!items.length) return;
     children.push(gap(), rule(), heading(title));
@@ -366,30 +394,5 @@ function drawPane(ui, width, actions) {
   }
   if (scanNote) children.push(gap(), Text({ dimColor: true, children: [scanNote] }));
 
-  children.push(
-    gap(),
-    Box({
-      flexDirection: "row",
-      columnGap: 3,
-      children: [
-        Button({
-          key: "copy",
-          label: "Copy share card",
-          hotkey: "c",
-          plain: true,
-          autoFocus: true,
-          onPress: actions.copyCard,
-        }),
-        Button({
-          key: "rescan",
-          label: "Rescan",
-          hotkey: "r",
-          plain: true,
-          onPress: actions.rescan,
-        }),
-        Text({ dimColor: true, children: ["Esc close"] }),
-      ],
-    }),
-  );
   return Box({ flexDirection: "column", children });
 }
