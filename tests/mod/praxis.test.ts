@@ -60,6 +60,7 @@ function stubSession(
   seen: { toasts: string[]; copied: string[] },
   history: () => string = fixtureHistory,
 ) {
+  mock.env(on, {});
   const saved = new Map<string, unknown>();
   on("store.get", ($, e) => ({ value: saved.get(e.key) }));
   on("store.set", ($, e) => {
@@ -171,6 +172,25 @@ test("an irreversible command runs when the user says yes", async ($, on) => {
 
   expect(result.result).toBe("ok");
   expect(ran).toEqual(["git push --force origin main"]);
+});
+
+test("a background agent's run (CREW_WORKER) is left alone: no hold, no scan", async ($, on) => {
+  mock.env(on, { CREW_WORKER: "1" });
+  const asked: string[] = [];
+  const ran: string[] = [];
+  on("tool.call", ($, e) => {
+    if (e.tool === "AskUserQuestion") asked.push(e.questions[0].question);
+    else ran.push(e.command);
+    return { result: "ok" };
+  });
+  on("session.start", () => ({ cwd: "/work" }));
+  await $.session.start({ surface: "cli", isInteractive: false, cwd: "/work" } as any);
+
+  const result = await $.tool.call({ tool: "Bash", command: "rm -rf build" });
+
+  expect(result.result).toBe("ok");
+  expect(asked).toEqual([]);
+  expect(ran).toEqual(["rm -rf build"]);
 });
 
 test("an ordinary command is never questioned", async ($, on) => {

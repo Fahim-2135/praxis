@@ -13,6 +13,10 @@
 //                     after a step that triggers one of the person's rules, tells Claude the next
 //                     step ("Make it a rule" in the pane; src/rules.mjs)
 //
+// In a background agent's run (CREW_WORKER or BRAIN_WORKER set) the mod stands aside: nobody is
+// there to answer the safety hold, so it would block every irreversible command, and those runs
+// have their own approvals.
+//
 // Everything that decides anything lives in the pure modules under src/, which have their own
 // tests. This file is the I/O shell: it moves data between Claude Code and those modules.
 
@@ -43,9 +47,13 @@ let wittyPending = false;
 let settings = { quiet: false };
 /** Habits the person turned into rules (src/rules.mjs). */
 let rules = [];
+/** A background agent's run: the mod does nothing. */
+let worker = false;
 
 export function register(on) {
   on("session.start", async ($, e, next) => {
+    worker = Boolean((await $.env.get("CREW_WORKER")) || (await $.env.get("BRAIN_WORKER")));
+    if (worker) return next(e);
     const saved = await $.store.get("settings");
     if (saved && typeof saved === "object") settings = { ...settings, ...saved };
     const savedRules = await $.store.get("rules");
@@ -70,6 +78,7 @@ export function register(on) {
   });
 
   on("turn.complete", async ($, e, next) => {
+    if (worker) return next(e);
     const now = await $.clock.now();
     if (scanState !== "scanning" && now - lastScanAt > REFRESH_INTERVAL_MS) {
       $.clock.after(0, () => refresh($));
@@ -149,7 +158,13 @@ export function register(on) {
   });
 
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
-    if (settings.quiet || !profile || profile.totals.toolCalls === 0 || e.props.isWorking) {
+    if (
+      worker ||
+      settings.quiet ||
+      !profile ||
+      profile.totals.toolCalls === 0 ||
+      e.props.isWorking
+    ) {
       return next(e);
     }
     const { Text } = $.ui.resolve(e);
@@ -158,7 +173,7 @@ export function register(on) {
 
   // A rule's trigger step just ran in the main conversation: tell Claude the next step.
   on("tool.call", async ($, e, next) => {
-    if (!rules.length || e.agentId) return next(e);
+    if (worker || !rules.length || e.agentId) return next(e);
     const answer = await next(e);
     if (answer.deny !== undefined || answer.isError) return answer;
     const { action } = normalize({ tool_name: e.tool, tool_input: e });
@@ -168,6 +183,7 @@ export function register(on) {
   });
 
   on("tool.call", { tool: ["Bash", "PowerShell"] }, async ($, e, next) => {
+    if (worker) return next(e);
     const hit = inspectCommand(String(e.command ?? ""));
     if (!hit) return next(e);
 
