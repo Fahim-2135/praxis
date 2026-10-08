@@ -9,7 +9,7 @@
     "praxis-history": "bin/praxis-history.mjs"
   },
   "scripts": {
-    "test": "node --test",
+    "test": "node scripts/run-tests.mjs",
     "test:mod": "claude plugin test",
     "validate": "claude plugin validate .",
     "history": "node bin/praxis-history.mjs",
