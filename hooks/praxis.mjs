@@ -9,7 +9,9 @@
 //   - session.start   registers /praxis and starts a background scan of the history
 //   - turn.complete   refreshes the profile in the background after each answer
 //   - ui.render       draws the profile pane, and one line above the prompt
-//   - tool.call       holds irreversible shell commands for the person's explicit go-ahead
+//   - tool.call       holds irreversible shell commands for the person's explicit go-ahead, and
+//                     after a step that triggers one of the person's rules, tells Claude the next
+//                     step ("Make it a rule" in the pane; src/rules.mjs)
 //
 // Everything that decides anything lives in the pure modules under src/, which have their own
 // tests. This file is the I/O shell: it moves data between Claude Code and those modules.
@@ -19,6 +21,8 @@ import { parseTranscript } from "../src/history/transcript.mjs";
 import { buildProfile } from "../src/profile/profile.mjs";
 import { shareCard, bandText, wittyRequest, cleanWitty } from "../src/profile/card.mjs";
 import { inspectCommand } from "../src/safety.mjs";
+import { normalize } from "../src/normalize.mjs";
+import { ruleBehaviour, ruleFrom, ruleNote, rulesAfter } from "../src/rules.mjs";
 
 const PANE = "praxis";
 
@@ -37,11 +41,15 @@ let lastScanAt = 0;
 let witty = null;
 let wittyPending = false;
 let settings = { quiet: false };
+/** Habits the person turned into rules (src/rules.mjs). */
+let rules = [];
 
 export function register(on) {
   on("session.start", async ($, e, next) => {
     const saved = await $.store.get("settings");
     if (saved && typeof saved === "object") settings = { ...settings, ...saved };
+    const savedRules = await $.store.get("rules");
+    if (Array.isArray(savedRules)) rules = savedRules;
     const cached = await $.store.get("witty");
     if (cached && typeof cached.text === "string") witty = cached;
 
@@ -120,7 +128,24 @@ export function register(on) {
       witty = null;
       $.clock.after(0, () => refresh($));
     };
-    return drawPane(ui, e.props.bodyColumns, { copyCard, rescan });
+    const makeRule = async (habit) => {
+      if (
+        rules.some((r) => r.preceding_event === habit.preceding_event && r.action === habit.action)
+      )
+        return;
+      const rule = ruleFrom(habit, await $.clock.now());
+      rules = [...rules, rule];
+      await $.store.set("rules", rules);
+      $.ui.toast(`Rule on: ${rule.sentence}. ${ruleBehaviour(rule)}.`, { timeoutMs: 8000 });
+      $.ui.invalidate("ui.render");
+    };
+    const dropRule = async (id) => {
+      rules = rules.filter((r) => r.id !== id);
+      await $.store.set("rules", rules);
+      $.ui.toast("Rule off.");
+      $.ui.invalidate("ui.render");
+    };
+    return drawPane(ui, e.props.bodyColumns, { copyCard, rescan, makeRule, dropRule });
   });
 
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
@@ -129,6 +154,17 @@ export function register(on) {
     }
     const { Text } = $.ui.resolve(e);
     return Text({ dimColor: true, wrap: "truncate-end", children: [bandText(profile)] });
+  });
+
+  // A rule's trigger step just ran in the main conversation: tell Claude the next step.
+  on("tool.call", async ($, e, next) => {
+    if (!rules.length || e.agentId) return next(e);
+    const answer = await next(e);
+    if (answer.deny !== undefined || answer.isError) return answer;
+    const { action } = normalize({ tool_name: e.tool, tool_input: e });
+    const notes = rulesAfter(rules, action).map(ruleNote);
+    if (!notes.length) return answer;
+    return { ...answer, context: [...(answer.context ?? []), ...notes] };
   });
 
   on("tool.call", { tool: ["Bash", "PowerShell"] }, async ($, e, next) => {
@@ -286,7 +322,7 @@ const num = (n) => Number(n ?? 0).toLocaleString("en-US");
  * almost habits, fun facts, and the share and rescan buttons.
  * @param {Record<string, Function>} ui   Elements from $.ui.resolve.
  * @param {number} width                 The pane's body width in columns.
- * @param {{ copyCard: Function, rescan: Function }} actions
+ * @param {{ copyCard: Function, rescan: Function, makeRule: Function, dropRule: Function }} actions
  */
 function drawPane(ui, width, actions) {
   const { Box, Text, Button } = ui;
@@ -385,7 +421,59 @@ function drawPane(ui, width, actions) {
     }
   };
   section("SIGNATURE MOVES", moves);
-  section("RULE-READY HABITS  (strong enough to become a standing rule)", ruleReady);
+
+  // Rule-ready habits: each one can become a standing rule with one press.
+  const isRule = (h) =>
+    rules.some((r) => r.preceding_event === h.preceding_event && r.action === h.action);
+  const offer = ruleReady.filter((h) => !isRule(h));
+  if (offer.length) {
+    children.push(
+      gap(),
+      rule(),
+      heading("RULE-READY HABITS  (strong enough to become a standing rule)"),
+    );
+    offer.forEach((h, i) => {
+      children.push(
+        Box({
+          flexDirection: "row",
+          columnGap: 2,
+          children: [
+            Text({ children: [`  ${h.sentence}`] }),
+            Text({ dimColor: true, children: [h.detail] }),
+            Button({
+              key: `make-rule-${i}`,
+              label: "Make it a rule",
+              hotkey: i < 9 ? String(i + 1) : undefined,
+              plain: true,
+              onPress: () => actions.makeRule(h),
+            }),
+          ],
+        }),
+      );
+    });
+  }
+  if (rules.length) {
+    children.push(gap(), rule(), heading("YOUR RULES  (Praxis does these for you)"));
+    rules.forEach((r, i) => {
+      children.push(
+        Box({
+          flexDirection: "row",
+          columnGap: 2,
+          children: [
+            Text({ color: "green", children: [`  ✓ ${r.sentence}`] }),
+            Text({ dimColor: true, children: [ruleBehaviour(r)] }),
+            Button({
+              key: `drop-rule-${i}`,
+              label: "Turn off",
+              dimColor: true,
+              plain: true,
+              onPress: () => actions.dropRule(r.id),
+            }),
+          ],
+        }),
+      );
+    });
+  }
   section("ALMOST HABITS  (what each one still needs)", almost);
 
   if (facts.length) {

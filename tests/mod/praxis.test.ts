@@ -55,7 +55,11 @@ function fixtureHistory() {
 }
 
 /** Stubs for everything session.start and a scan touch, recording toasts and copies. */
-function stubSession(on, seen: { toasts: string[]; copied: string[] }) {
+function stubSession(
+  on,
+  seen: { toasts: string[]; copied: string[] },
+  history: () => string = fixtureHistory,
+) {
   const saved = new Map<string, unknown>();
   on("store.get", ($, e) => ({ value: saved.get(e.key) }));
   on("store.set", ($, e) => {
@@ -84,7 +88,7 @@ function stubSession(on, seen: { toasts: string[]; copied: string[] }) {
       stderr: "",
     },
   }));
-  on("fs.read", () => ({ value: fixtureHistory() }));
+  on("fs.read", () => ({ value: history() }));
   on("session.start", () => ({ cwd: "/work" }));
   on("ui.render", () => ({ type: "Text", props: {}, children: ["drawn by Claude Code"] }));
 }
@@ -211,4 +215,55 @@ test("the line above the prompt shows the habit Praxis is closest to learning, a
   band = await $.ui.mount(BAND);
   expect(await band.find({ type: "Text", text: "drawn by Claude Code" })).toBeDefined();
   await band.unmount();
+});
+
+/** A history whose one strong habit is "getting the latest code → running tests", 3 sessions. */
+function habitHistory() {
+  const events = [];
+  for (let day = 1; day <= 3; day++) {
+    const sessionId = `h${day}`;
+    const steps = ["file_read", "git_pull", "test_run", "file_edit", "git_pull", "test_run"];
+    steps.forEach((action, i) => {
+      events.push({
+        kind: "tool",
+        sessionId,
+        timestamp: `2026-09-0${day}T12:0${i}:00.000Z`,
+        project: "tip-calculator",
+        action,
+        model: "claude-opus-5-5",
+      });
+    });
+  }
+  return JSON.stringify(encodeHistory(buildHistory(events)));
+}
+
+test("a rule-ready habit becomes a rule with one press, and Claude is told the next step", async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse("2026-09-04T00:00:00Z") });
+  const seen = { toasts: [] as string[], copied: [] as string[] };
+  stubSession(on, seen, habitHistory);
+  on("tool.call", () => ({ result: { stdout: "Already up to date.", stderr: "" }, text: "ok" }));
+
+  await startAndScan($, clock);
+  const ui = await $.ui.mount(PANE);
+  expect(await ui.find({ text: /getting the latest code → running tests/ })).toBeDefined();
+
+  // No rule yet: a pull carries nothing extra.
+  const before = await $.tool.call({ tool: "Bash", tool_use_id: "t0", command: "git pull" });
+  expect(before.context ?? []).toEqual([]);
+
+  await ui.press({ key: "make-rule-0" });
+  expect(seen.toasts.at(-1)).toContain("Rule on: getting the latest code → running tests");
+  expect(await ui.find({ text: /YOUR RULES/ })).toBeDefined();
+
+  // Now, right after a pull, Claude reads that it should run the tests.
+  const after = await $.tool.call({ tool: "Bash", tool_use_id: "t1", command: "git pull" });
+  expect((after.context ?? []).join("\n")).toMatch(/run the tests now, without being asked/);
+  // Other steps carry nothing.
+  const other = await $.tool.call({ tool: "Bash", tool_use_id: "t2", command: "npm test" });
+  expect(other.context ?? []).toEqual([]);
+
+  await ui.press({ key: "drop-rule-0" });
+  const off = await $.tool.call({ tool: "Bash", tool_use_id: "t3", command: "git pull" });
+  expect(off.context ?? []).toEqual([]);
+  await ui.unmount();
 });

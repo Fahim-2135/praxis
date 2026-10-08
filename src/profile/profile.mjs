@@ -56,7 +56,7 @@ const ACTION_PHRASES = Object.freeze({
   git_add: "staging changes",
   git_commit: "committing",
   git_push: "pushing",
-  git_pull: "pulling",
+  git_pull: "getting the latest code",
   git_checkout: "switching branches",
   web_search: "searching the web",
   web_fetch: "fetching web pages",
